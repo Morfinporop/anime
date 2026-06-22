@@ -108,6 +108,27 @@ img[loading="lazy"] {
   contain-intrinsic-size: 200px 300px;
 }
 
+/* Logo — убираем белый фон для PNG с белым подбоем */
+img[alt="CorpMult"] {
+  filter: contrast(1.1) brightness(1.02);
+}
+
+/* Fullscreen mode — без рамок, на весь экран */
+:fullscreen,
+:-webkit-full-screen,
+:-moz-full-screen {
+  background: black !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+:fullscreen > *,
+:-webkit-full-screen > * {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Glass header */
 .glass-header {
   background: rgba(255, 255, 255, 0.7);

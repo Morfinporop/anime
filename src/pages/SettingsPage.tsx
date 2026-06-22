@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, Lock, Check, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { changePassword, users } from '../services/api';
 import type { User } from '../types';
 
@@ -48,32 +47,17 @@ export default function SettingsPage() {
   if (!currentUser) {
     return (
       <div className="mx-auto max-w-md px-5 py-20 text-center sm:py-28 animate-fade-in">
-        <Lock className="mx-auto mb-4 h-12 w-12 text-zinc-300" />
         <h1 className="text-2xl font-bold text-zinc-900">Войдите в аккаунт</h1>
-        <Link to="/" className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
-          На главную
-        </Link>
+        <p className="mt-2 text-sm text-zinc-500">Нажмите «Вход» в правом верхнем углу.</p>
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-xl px-5 py-8 sm:px-8 sm:py-12 animate-fade-in">
-      <Link to="/" className="mb-4 inline-flex items-center gap-1.5 text-sm text-zinc-600 transition-colors hover:text-zinc-900">
-        <ArrowLeft className="h-4 w-4" />
-        На главную
-      </Link>
-
       <div className="mb-6 animate-slide-up">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-900 text-white">
-            <Lock className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-zinc-900">Настройки</h1>
-            <p className="mt-1 text-sm text-zinc-500">{currentUser.username} (ID: {currentUser.id})</p>
-          </div>
-        </div>
+        <h1 className="text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl">Настройки</h1>
+        <p className="mt-1 text-sm text-zinc-500">{currentUser.username} (ID: {currentUser.id})</p>
       </div>
 
       <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">

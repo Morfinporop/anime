@@ -1,27 +1,21 @@
 import { Link } from 'react-router-dom';
 import { Star, Heart } from 'lucide-react';
-import type { Video } from '../types';
+import type { Anime } from '../types';
 import { useState, useEffect } from 'react';
 import { toggleFavorite, getFavorites, users } from '../services/api';
 
 interface Props {
-  video: Video;
+  video: Anime;
 }
-
-const formatViews = (n: number) => {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
-  return String(n);
-};
 
 export default function VideoCard({ video }: Props) {
   const [fav, setFav] = useState(false);
 
   useEffect(() => {
-    if (!users.getCurrent) return;
-    users.getCurrent().then((u) => {
+    users.getCurrent().then(async (u) => {
       if (!u) { setFav(false); return; }
-      getFavorites().then((ids) => setFav(ids.includes(video.id)));
+      const ids = await getFavorites();
+      setFav(ids.some((f) => f.id === video.id));
     });
   }, [video.id]);
 
@@ -57,11 +51,11 @@ export default function VideoCard({ video }: Props) {
           <Heart className={`h-3.5 w-3.5 ${fav ? 'fill-pink-400 text-pink-400' : ''}`} />
         </button>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2.5 pb-2 pt-6 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-          <div className="flex items-center gap-1 text-[10px] font-medium text-white/90">
-            <span>{formatViews(video.views)} просм.</span>
+        {video.totalSeasons > 0 && (
+          <div className="absolute right-2 top-2 rounded bg-white/90 px-1.5 py-0.5 text-[9px] font-bold text-zinc-900 shadow-sm backdrop-blur-sm">
+            {video.totalSeasons} сезон{video.totalSeasons === 1 ? '' : video.totalSeasons < 5 ? 'а' : 'ов'}
           </div>
-        </div>
+        )}
       </div>
 
       <div className="mt-2.5 px-1">
@@ -71,7 +65,7 @@ export default function VideoCard({ video }: Props) {
         <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-zinc-500">
           <span>{video.year}</span>
           <span>·</span>
-          <span className="line-clamp-1">{video.genres[0] || 'Аниме'}</span>
+          <span className="line-clamp-1">{video.genres[0] || '—'}</span>
         </div>
       </div>
     </Link>

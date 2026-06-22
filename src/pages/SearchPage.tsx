@@ -2,19 +2,19 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search as SearchIcon } from 'lucide-react';
 import VideoCard from '../components/VideoCard';
-import { searchVideos } from '../services/api';
-import type { Video } from '../types';
+import { searchAnime } from '../services/api';
+import type { Anime } from '../types';
 
 export default function SearchPage() {
   const [params] = useSearchParams();
   const q = params.get('q') || '';
-  const [results, setResults] = useState<Video[]>([]);
+  const [results, setResults] = useState<Anime[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (q.trim()) {
       setLoading(true);
-      searchVideos(q).then((v) => {
+      searchAnime(q).then((v) => {
         setResults(v);
         setLoading(false);
       });
@@ -49,7 +49,7 @@ export default function SearchPage() {
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
           {results.map((v, i) => (
-            <div key={v.id} className="animate-slide-up" style={{ animationDelay: `${i * 30}ms` }}>
+            <div key={v.id} className="animate-fade-in" style={{ animationDelay: `${Math.min(i * 15, 150)}ms` }}>
               <VideoCard video={v} />
             </div>
           ))}
