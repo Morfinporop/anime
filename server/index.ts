@@ -55,7 +55,17 @@ app.get('/api/posters/:type/:id', async (req, res) => {
     if (type === 'anime') table = 'anime';
     else if (type === 'season') table = 'seasons';
     else if (type === 'episode') table = 'episodes';
-    else return res.status(404).end();
+    else {
+      const svg = generatePosterSvg('CorpMult');
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.send(svg);
+    }
+    // Простая валидация id
+    if (!/^[a-zA-Z0-9_-]{1,30}$/.test(id)) {
+      const svg = generatePosterSvg('CorpMult');
+      res.setHeader('Content-Type', 'image/svg+xml');
+      return res.send(svg);
+    }
 
     const result = await query(`SELECT poster_data, poster_mime FROM ${table} WHERE id = $1 AND poster_data IS NOT NULL`, [id]);
     if (result.rows.length === 0 || !result.rows[0].poster_data) {
@@ -69,8 +79,11 @@ app.get('/api/posters/:type/:id', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
     res.send(poster_data);
   } catch (err) {
-    console.error('Get poster error:', err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('[Get poster error]', err);
+    try {
+      res.setHeader('Content-Type', 'image/svg+xml');
+      res.send('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600"><rect width="400" height="600" fill="#ffd9ea"/></svg>');
+    } catch {}
   }
 });
 
@@ -805,17 +818,53 @@ if (existsSync(DIST_DIR)) {
   app.get('/', (req, res) => res.status(503).send('Фронтенд не собран. Запустите npm run build.'));
 }
 
+// === HEALTH CHECK (всегда работает, даже если БД недоступна) ===
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, time: new Date().toISOString(), port: PORT });
+});
+
+// Обработка необработанных ошибок — не даём процессу упасть
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  // НЕ падаем — продолжаем работать
+});
+
 // === ЗАПУСК ===
 async function start() {
-  await initDatabase();
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[server] CorpMult API запущен на порту ${PORT}`);
-    console.log(`[server] Режим: ${NODE_ENV}`);
-    console.log(`[server] Создайте первого админа: curl -X POST $API/api/setup-admin -d '{"username":"Morfin","password":"..."}'`);
-  });
+  try {
+    console.log(`[server] Запуск на порту ${PORT}...`);
+
+    // Сначала запускаем сервер, чтобы Railway видел что порт открыт
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[server] ✓ CorpMult API запущен на порту ${PORT}`);
+      console.log(`[server] Режим: ${NODE_ENV}`);
+      console.log(`[server] Создайте первого админа: curl -X POST $API/api/setup-admin -d '{"username":"Morfin","password":"..."}'`);
+    });
+
+    // Обработка ошибок сервера
+    server.on('error', (err: any) => {
+      console.error('[server.error]', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[fatal] Порт ${PORT} уже занят`);
+        process.exit(1);
+      }
+    });
+
+    // Потом инициализируем БД (если упадёт — сервер всё равно работает)
+    try {
+      await initDatabase();
+      console.log('[init] База данных готова');
+    } catch (dbErr) {
+      console.error('[init.error] Не удалось инициализировать БД:', dbErr);
+      console.error('[init.error] Сервер продолжает работать но БД может быть недоступна');
+    }
+  } catch (err) {
+    console.error('[fatal] Ошибка запуска:', err);
+    process.exit(1);
+  }
 }
 
-start().catch((err) => {
-  console.error('[fatal] Ошибка запуска:', err);
-  process.exit(1);
-});
+start();
