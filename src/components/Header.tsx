@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
-import { Heart, Upload, Menu, X, Search, LogIn, LogOut, User, Shield } from 'lucide-react';
+import { Heart, History, Upload, Menu, X, Search, LogIn, LogOut, User, Shield } from 'lucide-react';
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { searchVideos, users, LOGO_URL } from '../services/api';
 import type { Video, User as UserType } from '../types';
 
+// Реактивная подписка на текущего пользователя
 function useCurrentUser(): UserType | null {
   const subscribe = (cb: () => void) => {
     window.addEventListener('corpmult_user_change', cb);
@@ -12,6 +13,8 @@ function useCurrentUser(): UserType | null {
   const getSnapshot = () => localStorage.getItem('corpmult_user_cache') || 'null';
   const getServerSnapshot = () => 'null';
 
+  // Загружаем актуального пользователя с сервера при монтировании
+  // и обновляем кэш. Это гарантирует что права актуальны после перезагрузки.
   useEffect(() => {
     let cancelled = false;
     users.getCurrent().then((u) => {
@@ -22,13 +25,14 @@ function useCurrentUser(): UserType | null {
     return () => { cancelled = true; };
   }, []);
 
+  // Периодически проверяем права (если админ выдал — обновится)
   useEffect(() => {
     const interval = setInterval(() => {
       users.getCurrent().then((u) => {
         localStorage.setItem('corpmult_user_cache', u ? JSON.stringify(u) : 'null');
         window.dispatchEvent(new Event('corpmult_user_change'));
       });
-    }, 30000);
+    }, 30000); // каждые 30 сек
     return () => clearInterval(interval);
   }, []);
 
@@ -85,6 +89,7 @@ export default function Header() {
     await users.logout();
   };
 
+  // Кнопка "Загрузить" видна ТОЛЬКО если есть права
   const canUpload = currentUser?.canUpload || currentUser?.isAdmin;
 
   return (
@@ -97,19 +102,21 @@ export default function Header() {
             <span className="hidden text-base font-black tracking-tight text-zinc-900 sm:inline">CorpMult</span>
           </Link>
 
-          {/* Поиск — поле ввода (пошире) */}
-          <div ref={searchContainerRef} className="relative flex-1 min-w-0">
+          {/* Поиск — компактная кнопка */}
+          <div ref={searchContainerRef} className="relative flex-shrink-0">
             <button
               onClick={() => setSearchOpen(!searchOpen)}
-              className="flex h-9 w-full items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3.5 text-sm transition-colors hover:bg-zinc-100"
+              className={`flex h-9 items-center gap-2 rounded-full border bg-white px-3.5 text-sm transition-all ${
+                searchOpen ? 'w-64 border-zinc-900 shadow-md' : 'w-9 border-zinc-200 justify-center hover:bg-zinc-50 sm:w-auto sm:justify-start'
+              }`}
               aria-label="Поиск"
             >
               <Search className="h-4 w-4 flex-shrink-0 text-zinc-500" />
-              <span className="flex-1 text-left text-zinc-400">Поиск аниме по названию...</span>
+              <span className={`hidden text-zinc-400 sm:inline ${searchOpen ? 'inline' : ''}`}>Поиск</span>
             </button>
 
             {searchOpen && (
-              <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-2xl border border-zinc-200 bg-white p-3 shadow-2xl animate-fade-in">
+              <div className="absolute left-0 top-full z-50 mt-2 w-[min(90vw,500px)] rounded-2xl border border-zinc-200 bg-white p-3 shadow-2xl animate-fade-in">
                 <div className="flex items-center gap-2 rounded-xl bg-zinc-50 px-3 py-2">
                   <Search className="h-4 w-4 text-zinc-400" />
                   <input
@@ -162,19 +169,26 @@ export default function Header() {
             )}
           </div>
 
+          <div className="flex-1" />
+
           {/* Иконки действий */}
           <div className="flex flex-shrink-0 items-center gap-1">
             <Link to="/favorites" className="hidden h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:flex" title="Избранное">
               <Heart className="h-[18px] w-[18px]" />
             </Link>
+            <Link to="/history" className="hidden h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:flex" title="История">
+              <History className="h-[18px] w-[18px]" />
+            </Link>
 
-            {/* Загрузить — ТОЛЬКО круг с иконкой (как везде) */}
+            {/* Загрузить — ТОЛЬКО если есть права */}
             {canUpload && (
-              <Link to="/upload" className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-white transition-all hover:scale-105 hover:bg-zinc-800" title="Загрузить видео">
-                <Upload className="h-[18px] w-[18px]" />
+              <Link to="/upload" className="flex h-9 items-center gap-1.5 rounded-full bg-zinc-900 px-3.5 text-sm font-medium text-white transition-all hover:scale-105 hover:bg-zinc-800">
+                <Upload className="h-4 w-4" />
+                <span className="hidden sm:inline">Загрузить</span>
               </Link>
             )}
 
+            {/* Админка */}
             {currentUser?.isAdmin && (
               <Link to="/admin" className="hidden h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:flex" title="Админ-панель">
                 <Shield className="h-[18px] w-[18px]" />
@@ -192,11 +206,7 @@ export default function Header() {
                     <div className="text-[11px] text-zinc-500">ID: {currentUser.id}</div>
                     {currentUser.isAdmin && <div className="mt-1 text-[10px] font-bold text-pink-500">АДМИН</div>}
                   </div>
-                  <Link to="/settings" onClick={() => {}} className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-700 transition-colors hover:bg-zinc-50">
-                    <User className="h-4 w-4" />
-                    Настройки
-                  </Link>
-                  <button onClick={handleLogout} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-700 transition-colors hover:bg-zinc-50">
+                  <button onClick={handleLogout} className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-zinc-700 transition-colors hover:bg-zinc-50">
                     <LogOut className="h-4 w-4" />
                     Выйти
                   </button>
@@ -232,6 +242,9 @@ export default function Header() {
             <nav className="space-y-1">
               <Link to="/favorites" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-zinc-700 transition-colors hover:bg-zinc-50">
                 <Heart className="h-5 w-5" /> Избранное
+              </Link>
+              <Link to="/history" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-zinc-700 hover:bg-zinc-50">
+                <History className="h-5 w-5" /> История
               </Link>
               {canUpload && (
                 <Link to="/upload" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 rounded-xl bg-zinc-900 px-4 py-3 text-base font-semibold text-white">

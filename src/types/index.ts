@@ -1,7 +1,6 @@
 // Типы данных для CorpMult
 
 export type Category = 'anime';
-// Только один раздел — аниме. Мультфильмы убраны навсегда.
 
 export type Quality = '360p' | '480p' | '720p' | '1080p' | '1440p' | '4K' | 'Auto';
 
@@ -36,15 +35,6 @@ export interface Video {
   voiceovers: string[];
   subtitles: string[];
   addedAt: string;
-}
-
-export interface AdminUser {
-  id: number;
-  username: string;
-  avatarColor: string;
-  isAdmin: boolean;
-  canUpload: boolean;
-  createdAt: string;
 }
 
 export interface User {

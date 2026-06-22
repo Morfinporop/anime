@@ -71,7 +71,7 @@ function cacheUser(user: User | null) {
 
 // Админка
 export const admin = {
-  async listUsers() {
+  async listUsers(): Promise<Array<{ id: number; username: string; avatarColor: string; isAdmin: boolean; canUpload: boolean; createdAt: string }>> {
     const { users } = await http<{ users: any[] }>('/admin/users');
     return users;
   },
@@ -87,26 +87,7 @@ export const admin = {
       body: JSON.stringify({ isAdmin }),
     });
   },
-  async deleteVideo(videoId: string) {
-    await http(`/videos/${videoId}`, { method: 'DELETE' });
-  },
-  async deleteComment(commentId: number) {
-    await http(`/admin/comments/${commentId}`, { method: 'DELETE' });
-  },
 };
-
-// Сменить пароль
-export async function changePassword(oldPassword: string, newPassword: string) {
-  return http('/auth/change-password', {
-    method: 'POST',
-    body: JSON.stringify({ oldPassword, newPassword }),
-  });
-}
-
-// Удалить видео (своё или админ — любое)
-export async function deleteVideo(videoId: string) {
-  return http(`/videos/${videoId}`, { method: 'DELETE' });
-}
 
 // === ВИДЕО ===
 export async function loadCatalog(sort: string = 'popular', genre?: string): Promise<Video[]> {

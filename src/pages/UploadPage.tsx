@@ -4,10 +4,11 @@ import {
   Upload as UploadIcon, Film, X, Plus, LogIn, AlertCircle, CheckCircle2,
 } from 'lucide-react';
 import { uploadVideo, users } from '../services/api';
-import type { User } from '../types';
+import type { Quality, User } from '../types';
 
 const SUGGESTED_VOICEOVERS = ['Оригинал', 'Дубляж', 'Субтитры'];
 const SUBTITLES = ['Русские', 'English', '日本語'];
+const QUALITIES: Quality[] = ['360p', '480p', '720p', '1080p', '1440p', '4K'];
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ export default function UploadPage() {
     genres: '',
     year: new Date().getFullYear(),
     ageRating: '12+',
+    quality: '1080p' as Quality,
     voiceovers: ['Оригинал'] as string[],
     subtitles: ['Русские'] as string[],
     isSeries: false,
@@ -99,6 +101,7 @@ export default function UploadPage() {
         description: form.description.trim(),
         year: form.year,
         ageRating: form.ageRating,
+        quality: form.quality,
         isSeries: form.isSeries,
         episodesCount: form.episodesCount,
         genres: form.genres,
@@ -195,6 +198,12 @@ export default function UploadPage() {
             <Field label="Возраст">
               <select value={form.ageRating} onChange={(e) => setForm({ ...form, ageRating: e.target.value })} className="input">
                 <option>0+</option><option>6+</option><option>12+</option><option>16+</option><option>18+</option>
+              </select>
+            </Field>
+
+            <Field label="Качество исходника">
+              <select value={form.quality} onChange={(e) => setForm({ ...form, quality: e.target.value as Quality })} className="input">
+                {QUALITIES.map((q) => <option key={q} value={q}>{q}</option>)}
               </select>
             </Field>
 
