@@ -8,51 +8,132 @@ import { join } from 'path';
 const DATABASE_URL = process.env.DATABASE_URL;
 
 if (!DATABASE_URL) {
-  console.error('❌ DATABASE_URL не задан. Установите переменную окружения.');
-  console.error('   На Railway: Variables → New Variable → DATABASE_URL');
-  // НЕ завершаем процесс — пусть сервер запустится без БД
-  // process.exit(1);
+  console.warn('⚠️ DATABASE_URL не задан. API запустится, но БД будет недоступна.');
 }
 
-export const pool = DATABASE_URL ? new Pool({
+export const pool: Pool | null = DATABASE_URL ? new Pool({
   connectionString: DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
-}) : (null as any);
+  connectionTimeoutMillis: 10000,
+}) : null;
 
-pool?.on?.('error', (err: any) => {
-  console.error('[db.error] Ошибка подключения к PostgreSQL:', err);
+pool?.on('error', (err: any) => {
+  console.error('[db.error] Подключение к PostgreSQL:', err.message);
 });
 
-// Применяем схему при запуске
+// Разделяем SQL файл на отдельные statements
+// Корректно обрабатываем DO $$ ... $$ блоки и строки в кавычках
+function splitSQLStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inDollarQuote = false;
+  let inSingleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    // Блочный комментарий /* ... */
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') { inBlockComment = false; i++; }
+      continue;
+    }
+    if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+
+    // Строчный комментарий -- ...
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      current += ch;
+      continue;
+    }
+    if (ch === '-' && next === '-') { inLineComment = true; current += ch; continue; }
+
+    // $$ dollar quoting $$ для DO блоков
+    if (ch === '$') {
+      if (sql.substr(i, 2) === '$$') {
+        inDollarQuote = !inDollarQuote;
+        current += '$$';
+        i++;
+        continue;
+      }
+    }
+
+    // Одинарные кавычки '...'
+    if (ch === "'" && !inDollarQuote) {
+      inSingleQuote = !inSingleQuote;
+      current += ch;
+      continue;
+    }
+
+    // Разделитель ; (вне кавычек и комментариев)
+    if (ch === ';' && !inDollarQuote && !inSingleQuote) {
+      const stmt = current.trim();
+      if (stmt) statements.push(stmt);
+      current = '';
+      continue;
+    }
+
+    current += ch;
+  }
+
+  // Последний statement без ;
+  const last = current.trim();
+  if (last) statements.push(last);
+
+  return statements;
+}
+
+// Применяем схему
 export async function initDatabase() {
-  if (!DATABASE_URL) {
+  if (!DATABASE_URL || !pool) {
     console.warn('[db] DATABASE_URL не задан — пропускаем инициализацию БД');
     return;
   }
+
   const schemaPath = join(process.cwd(), 'server', 'schema.sql');
   let schema: string;
   try {
     schema = readFileSync(schemaPath, 'utf-8');
-  } catch (err) {
-    console.error('[db] Не удалось прочитать schema.sql:', err);
+  } catch (err: any) {
+    console.error('[db] Не удалось прочитать schema.sql:', err.message);
     return;
   }
 
-  // Разделяем по `;` но сохраняем DO $$ блоки как есть
-  // Простая стратегия — выполнить весь файл одним запросом,
-  // DO $$ ... $$ блоки понимает PostgreSQL
-  try {
-    await pool.query(schema);
-    console.log('✓ Схема базы данных инициализирована');
-  } catch (err: any) {
-    console.error('[db] Ошибка инициализации схемы:', err?.message || err);
-    // НЕ пробрасываем — сервер должен работать даже если БД недоступна
+  // Разделяем и выполняем каждый statement отдельно
+  const statements = splitSQLStatements(schema);
+  console.log(`[db] Выполняю ${statements.length} SQL statements...`);
+
+  let successCount = 0;
+  let skipCount = 0;
+
+  for (const stmt of statements) {
+    try {
+      await pool.query(stmt);
+      successCount++;
+    } catch (err: any) {
+      // Игнорируем ошибки "уже существует" — останавливаемся на критических
+      const msg = err.message || '';
+      if (msg.includes('already exists') || msg.includes('does not exist') && msg.includes('DROP')) {
+        skipCount++;
+      } else if (msg.includes('relation') && msg.includes('does not exist')) {
+        // Не критично — таблица не существует, может быть нормальным
+        console.warn(`[db] Пропуск: ${msg.slice(0, 100)}`);
+        skipCount++;
+      } else {
+        console.error(`[db] Ошибка: ${msg.slice(0, 200)}`);
+        skipCount++;
+      }
+    }
   }
+
+  console.log(`[db] ✓ Схема: ${successCount} OK, ${skipCount} пропущено`);
 }
 
 export async function query(text: string, params?: unknown[]) {
-  if (!DATABASE_URL) throw new Error('Database not configured');
+  if (!pool) throw new Error('Database not configured');
   return pool.query(text, params);
 }
