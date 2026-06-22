@@ -1,8 +1,9 @@
-# Railway конфигурация для CorpMult
-# Деплой: railway up (после railway link)
-
 [build]
 builder = "NIXPACKS"
+
+[build.nixpacks]
+# Собираем фронтенд перед запуском
+buildCommand = "npm run build"
 
 [deploy]
 startCommand = "npm run server"
@@ -12,5 +13,7 @@ restartPolicyMaxRetries = 10
 # Переменные окружения (задаются в Railway Dashboard):
 # DATABASE_URL — автоматически от Railway Postgres
 # JWT_SECRET — секрет для подписи токенов (сгенерируйте случайную строку)
+# ADMIN_USERNAME — по умолчанию Morfin
+# ADMIN_PASSWORD — пароль админа (смените!)
 # PORT — порт (Railway задаёт автоматически)
 # FRONTEND_URL — URL вашего фронтенда (для CORS)

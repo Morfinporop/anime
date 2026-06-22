@@ -1,29 +1,21 @@
 // CorpMult Backend Server
-// Express + PostgreSQL + JWT авторизация + загрузка видео
-// Запускается на Railway через `npm run server`
+// Express + PostgreSQL + JWT авторизация + загрузка видео + раздача статического фронтенда
 
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import multer from 'multer';
-import { spawn } from 'child_process';
-import { existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join } from 'path';
-import { randomUUID } from 'crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 
 import { pool, initDatabase, query } from './db';
 import {
   hashPassword, verifyPassword, signToken, verifyToken,
   authMiddleware, requireAuth, requireUploadPermission, requireAdmin,
   getRandomAvatarColor,
-  type UserPayload,
 } from './auth';
 
-// Создаём админа Morfin при первом запуске
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Morfin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'morfin2024';
-
-const PORT = parseInt(process.env.PORT || '3001', 10);
+const PORT = parseInt(process.env.PORT || '3000', 10);
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // === ИНИЦИАЛИЗАЦИЯ ===
@@ -33,30 +25,33 @@ const app = express();
 const UPLOAD_DIR = join(process.cwd(), 'uploads');
 const THUMB_DIR = join(UPLOAD_DIR, 'thumbs');
 const HLS_DIR = join(UPLOAD_DIR, 'hls');
+const DIST_DIR = join(process.cwd(), 'dist');
 [UPLOAD_DIR, THUMB_DIR, HLS_DIR].forEach((dir) => {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 });
 
-// Multer для загрузки файлов (в память, потом записываем)
+// Multer для загрузки файлов
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 }, // 2 ГБ максимум
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 },
 });
 
 // === MIDDLEWARE ===
+app.set('trust proxy', 1);
 app.use(cors({
-  origin: process.env.FRONTEND_URL || true,
+  origin: (origin, cb) => cb(null, true),
   credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 app.use(authMiddleware);
 
-// Раздача статических файлов (видео)
+// === РАЗДАЧА ВИДЕО (должна быть до SPA fallback) ===
 app.use('/uploads', express.static(UPLOAD_DIR, {
-  maxAge: '1d',
+  maxAge: '7d',
   setHeaders: (res) => {
     res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=604800');
   },
 }));
 
@@ -131,7 +126,7 @@ app.post('/api/auth/login', async (req, res) => {
       isAdmin: user.is_admin,
       canUpload: user.can_upload,
     });
-    res.cookie('token', token, { httpOnly: true, maxAge: 30 * 24 * 60 * 1000, sameSite: 'lax' });
+    res.cookie('token', token, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
     res.json({
       user: {
         id: user.id,
@@ -157,7 +152,6 @@ app.get('/api/auth/me', async (req, res) => {
   if (!req.user) {
     return res.json({ user: null });
   }
-  // Всегда подтягиваем актуальные данные из БД (на случай если админ выдал права)
   try {
     const result = await query(
       'SELECT id, username, avatar_color, is_admin, can_upload FROM users WHERE id = $1',
@@ -225,7 +219,7 @@ app.get('/api/videos', async (req, res) => {
       params.push(genre);
     }
 
-    sql += ` GROUP BY v.id, r.avg_rating, r.ratings_count, vi.views_count ORDER BY ${orderBy} LIMIT 200`;
+    sql += ` GROUP BY v.id, r.avg_rating, r.ratings_count, vi.views_count ORDER BY ${orderBy} LIMIT 500`;
 
     const result = await query(sql, params);
     const videos = result.rows.map(formatVideo);
@@ -315,19 +309,16 @@ app.post('/api/videos', requireUploadPermission, upload.single('video'), async (
     const filename = `${id}.${ext}`;
     const filepath = join(UPLOAD_DIR, filename);
 
-    // Записываем файл
-    require('fs').writeFileSync(filepath, req.file.buffer);
-    console.log(`✓ Видео сохранено: ${filename} (${(req.file.size / 1024 / 1024).toFixed(1)} МБ)`);
+    writeFileSync(filepath, req.file.buffer);
+    console.log(`[upload] Видео сохранено: ${filename} (${(req.file.size / 1024 / 1024).toFixed(1)} МБ)`);
 
-    // Создаём превью (poster) — если не передан, генерируем
-    const posterUrl = req.body.posterUrl || `/uploads/thumbs/${id}.svg`;
+    const posterUrl = `/uploads/thumbs/${id}.svg`;
     const svgPoster = generatePosterSvg(title);
-    require('fs').writeFileSync(join(THUMB_DIR, `${id}.svg`), svgPoster);
+    writeFileSync(join(THUMB_DIR, `${id}.svg`), svgPoster);
 
     const videoUrl = `/uploads/${filename}`;
     const userId = req.user.id;
 
-    // Транзакция: создаём видео + связанные данные
     await query('BEGIN');
     try {
       await query(
@@ -337,21 +328,18 @@ app.post('/api/videos', requireUploadPermission, upload.single('video'), async (
          isSeries === 'true' || isSeries === true, parseInt(episodesCount) || 1, userId]
       );
 
-      // Жанры
       const genreList = genres.split(',').map((g: string) => g.trim()).filter(Boolean);
       for (const g of genreList) {
         const gr = await query('INSERT INTO genres (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id', [g]);
         await query('INSERT INTO video_genres (video_id, genre_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, gr.rows[0].id]);
       }
 
-      // Озвучки
       const voiceList = voiceovers.split(',').map((v: string) => v.trim()).filter(Boolean);
       for (const v of voiceList) {
         const vr = await query('INSERT INTO voiceovers (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id', [v]);
         await query('INSERT INTO video_voiceovers (video_id, voiceover_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [id, vr.rows[0].id]);
       }
 
-      // Субтитры
       const subList = subtitles.split(',').map((s: string) => s.trim()).filter(Boolean);
       for (const s of subList) {
         const sr = await query('INSERT INTO subtitles (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id', [s]);
@@ -371,7 +359,6 @@ app.post('/api/videos', requireUploadPermission, upload.single('video'), async (
   }
 });
 
-// Генерация постера через SVG (без imagemagick)
 function generatePosterSvg(title: string): string {
   const initials = title.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '?';
   const escaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -525,7 +512,6 @@ app.delete('/api/comments/:id', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
     const commentId = parseInt(id);
-    // Проверяем что комментарий принадлежит пользователю
     const check = await query('SELECT user_id FROM comments WHERE id = $1', [commentId]);
     if (check.rows.length === 0) return res.status(404).json({ error: 'Не найден' });
     if (check.rows[0].user_id !== req.user.id) return res.status(403).json({ error: 'Нет доступа' });
@@ -539,7 +525,6 @@ app.delete('/api/comments/:id', requireAuth, async (req: any, res) => {
 });
 
 // === ПРОСМОТРЫ ===
-// Засчитывается только если пользователь реально посмотрел 30+ секунд
 app.post('/api/videos/:id/view', requireAuth, async (req: any, res) => {
   try {
     const { id } = req.params;
@@ -613,8 +598,7 @@ app.post('/api/history/:id', requireAuth, async (req: any, res) => {
   }
 });
 
-// === АДМИН-ПАНЕЛЬ ===
-// Список пользователей
+// === АДМИНКА ===
 app.get('/api/admin/users', requireAdmin, async (req: any, res) => {
   try {
     const result = await query(
@@ -631,12 +615,10 @@ app.get('/api/admin/users', requireAdmin, async (req: any, res) => {
       })),
     });
   } catch (err) {
-    console.error('Admin users error:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
-// Выдать/забрать права на загрузку
 app.post('/api/admin/users/:id/upload-permission', requireAdmin, async (req: any, res) => {
   try {
     const userId = parseInt(req.params.id);
@@ -644,12 +626,10 @@ app.post('/api/admin/users/:id/upload-permission', requireAdmin, async (req: any
     await query('UPDATE users SET can_upload = $1 WHERE id = $2', [!!canUpload, userId]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Toggle upload permission error:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
-// Выдать/забрать права админа
 app.post('/api/admin/users/:id/admin', requireAdmin, async (req: any, res) => {
   try {
     const userId = parseInt(req.params.id);
@@ -657,14 +637,58 @@ app.post('/api/admin/users/:id/admin', requireAdmin, async (req: any, res) => {
     await query('UPDATE users SET is_admin = $1 WHERE id = $2', [!!isAdmin, userId]);
     res.json({ ok: true });
   } catch (err) {
-    console.error('Toggle admin error:', err);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 
+// === РАЗДАЧА ФРОНТЕНДА (SPA) ===
+// ВАЖНО: должно быть после всех API маршрутов
+if (existsSync(DIST_DIR)) {
+  console.log(`[serve] Раздача фронтенда из ${DIST_DIR}`);
+  app.use(express.static(DIST_DIR, {
+    maxAge: '1h',
+    setHeaders: (res, path) => {
+      if (path.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
+
+  // SPA fallback — все неизвестные маршруты ведут на index.html
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      return res.status(404).json({ error: 'Не найдено' });
+    }
+    const indexPath = join(DIST_DIR, 'index.html');
+    if (existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(503).send(`
+        <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+          <h1>Фронтенд не собран</h1>
+          <p>На сервере нет папки <code>dist/</code>. Запустите <code>npm run build</code> перед <code>npm run server</code>.</p>
+        </body></html>
+      `);
+    }
+  });
+} else {
+  console.warn(`[!] Папка ${DIST_DIR} не найдена. Фронтенд не будет раздаваться.`);
+  app.get('/', (req, res) => {
+    res.status(503).send(`
+      <html><body style="font-family:sans-serif;padding:40px;text-align:center;">
+        <h1>CorpMult API работает</h1>
+        <p>API сервер запущен, но фронтенд не собран. Запустите <code>npm run build</code>.</p>
+        <p>API endpoints доступны по <code>/api/*</code></p>
+      </body></html>
+    `);
+  });
+}
+
 // === ЗАПУСК ===
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Morfin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'morfin2024';
+
 async function ensureAdmin() {
-  // Создаём Morfin если его ещё нет
   const existing = await query('SELECT id FROM users WHERE username = $1', [ADMIN_USERNAME]);
   if (existing.rows.length === 0) {
     const hash = await hashPassword(ADMIN_PASSWORD);
@@ -675,28 +699,28 @@ async function ensureAdmin() {
        ON CONFLICT (username) DO UPDATE SET is_admin = TRUE, can_upload = TRUE`,
       [ADMIN_USERNAME, hash, color]
     );
-    console.log(`✓ Создан админ-аккаунт: ${ADMIN_USERNAME} (пароль задан через ADMIN_PASSWORD)`);
+    console.log(`[init] Создан админ: ${ADMIN_USERNAME}`);
   } else {
-    // Убеждаемся что у Morfin есть все права
     await query(
       'UPDATE users SET is_admin = TRUE, can_upload = TRUE WHERE username = $1',
       [ADMIN_USERNAME]
     );
-    console.log(`✓ Админ-аккаунт ${ADMIN_USERNAME} подтверждён`);
+    console.log(`[init] Админ подтверждён: ${ADMIN_USERNAME}`);
   }
 }
 
 async function start() {
   await initDatabase();
   await ensureAdmin();
+
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✓ CorpMult API запущен на порту ${PORT}`);
-    console.log(`  Режим: ${NODE_ENV}`);
-    console.log(`  Админ: ${ADMIN_USERNAME}`);
+    console.log(`[server] CorpMult API запущен на порту ${PORT}`);
+    console.log(`[server] Режим: ${NODE_ENV}`);
+    console.log(`[server] Админ: ${ADMIN_USERNAME}`);
   });
 }
 
 start().catch((err) => {
-  console.error('Ошибка запуска:', err);
+  console.error('[fatal] Ошибка запуска:', err);
   process.exit(1);
 });

@@ -113,7 +113,6 @@ export default function Header() {
             >
               <Search className="h-4 w-4 flex-shrink-0 text-zinc-500" />
               <span className={`hidden text-zinc-400 sm:inline ${searchOpen ? 'inline' : ''}`}>Поиск</span>
-              <kbd className="hidden rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 sm:inline-block">⌘K</kbd>
             </button>
 
             {searchOpen && (

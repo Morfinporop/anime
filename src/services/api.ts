@@ -6,13 +6,9 @@ import type { Video, Comment, User } from '../types';
 const LOGO_URL = 'https://cdn.pixabay.com/photo/2017/03/16/21/18/logo-2150297_640.png';
 
 // API_BASE определяется автоматически:
-// - В продакшене (Railway): same origin `/api`
-// - В разработке: http://localhost:3001/api
-const API_BASE = (import.meta as any).env?.VITE_API_URL || (
-  typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? '/api'
-    : 'http://localhost:3001/api'
-);
+// - В продакшене (Railway): same origin `/api` (тот же сервер раздаёт и API и фронтенд)
+// - В разработке: http://localhost:3001/api (отдельный сервер)
+const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
 export { LOGO_URL };
 
