@@ -5,11 +5,12 @@ import ScrollToTop from './components/ScrollToTop';
 import HomePage from './pages/HomePage';
 import CategoryPage from './pages/CategoryPage';
 import VideoPage from './pages/VideoPage';
-import { FavoritesPage, HistoryPage } from './pages/ListPage';
+import { FavoritesPage } from './pages/ListPage';
 import ListsPage from './pages/ListsPage';
 import SearchPage from './pages/SearchPage';
 import UploadPage from './pages/UploadPage';
 import AdminPage from './pages/AdminPage';
+import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
   return (
@@ -20,15 +21,15 @@ export default function App() {
         <main className="flex-1">
           <Routes>
             <Route path="/" element={<HomePage />} />
-            <Route path="/anime" element={<CategoryPage key="anime" />} />
+            <Route path="/anime" element={<CategoryPage />} />
             <Route path="/anime/:id" element={<VideoPage />} />
             <Route path="/popular" element={<ListsPage mode="popular" />} />
             <Route path="/latest" element={<ListsPage mode="latest" />} />
             <Route path="/favorites" element={<FavoritesPage />} />
-            <Route path="/history" element={<HistoryPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/admin" element={<AdminPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<HomePage />} />
           </Routes>
         </main>

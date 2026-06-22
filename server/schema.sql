@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- НЕ создаём Morfin автоматически — админ регистрируется сам через форму
+-- и получает права через SQL или админ-панель другого админа
+
 CREATE TABLE IF NOT EXISTS videos (
   id VARCHAR(20) PRIMARY KEY,
   title VARCHAR(200) NOT NULL,

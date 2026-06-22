@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
   Star, Eye, Calendar, Heart, Share2, MessageCircle, ThumbsUp,
-  ChevronDown, ChevronRight, Globe, Check, Send, Trash2, LogIn,
+  ChevronDown, Globe, Check, Send, Trash2, LogIn,
 } from 'lucide-react';
 import VideoPlayer from '../components/VideoPlayer';
 import VideoCard from '../components/VideoCard';
@@ -10,7 +10,7 @@ import {
   getVideoById, getComments, addComment,
   toggleCommentLike, deleteComment, rateVideo, getVideoRating,
   recordView, getRelatedVideos, toggleFavorite, getFavorites, pushHistory,
-  users,
+  deleteVideo, admin, users,
 } from '../services/api';
 import type { Video, Comment, User as UserType } from '../types';
 
@@ -28,10 +28,7 @@ export default function VideoPage() {
 
   useEffect(() => {
     if (!id) return;
-    Promise.all([
-      getVideoById(id),
-      users.getCurrent(),
-    ]).then(async ([v, u]) => {
+    Promise.all([getVideoById(id), users.getCurrent()]).then(async ([v, u]) => {
       setVideo(v);
       setCurrentUser(u);
       if (v) {
@@ -69,9 +66,8 @@ export default function VideoPage() {
 
   if (!video) {
     return (
-      <div className="mx-auto flex min-h-[60vh] max-w-2xl flex-col items-center justify-center px-6 text-center">
-        <MessageCircle className="mb-4 h-10 w-10 text-zinc-300" />
-        <h1 className="text-3xl font-bold text-zinc-900">Загрузка...</h1>
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900" />
       </div>
     );
   }
@@ -99,17 +95,27 @@ export default function VideoPage() {
     setFav(newState);
   };
 
+  // Рейтинг можно менять без комментария (один раз, нельзя снять)
   const submitRating = async (score: number) => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      alert('Войдите в аккаунт, чтобы ставить оценки');
+      return;
+    }
     try {
       const result = await rateVideo(video.id, score);
       setRating({ ...result, userScore: score });
       setVideo({ ...video, rating: result.average, ratingsCount: result.count });
-    } catch {}
+    } catch (err: any) {
+      alert(err.message);
+    }
   };
 
   const submitComment = async () => {
-    if (!currentUser || !newComment.trim()) return;
+    if (!currentUser) {
+      alert('Войдите в аккаунт, чтобы комментировать');
+      return;
+    }
+    if (!newComment.trim()) return;
     try {
       const c = await addComment(video.id, newComment);
       setComments([c, ...comments]);
@@ -129,11 +135,34 @@ export default function VideoPage() {
     } catch {}
   };
 
+  // Удалить комментарий — свой ИЛИ админ
   const handleDeleteComment = async (commentId: number) => {
     if (!currentUser) return;
+    const comment = comments.find((c) => c.id === commentId);
+    if (!comment) return;
+    const isMine = comment.userId === currentUser.id;
+    const isAdmin = currentUser.isAdmin;
+    if (!isMine && !isAdmin) return;
+
     try {
-      await deleteComment(commentId);
+      if (isAdmin && !isMine) {
+        await admin.deleteComment(commentId);
+      } else {
+        await deleteComment(commentId);
+      }
       setComments(comments.filter((c) => c.id !== commentId));
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Удалить видео (своё или любое если админ)
+  const handleDeleteVideo = async () => {
+    if (!currentUser) return;
+    if (!confirm('Удалить это видео полностью? Это действие необратимо.')) return;
+    try {
+      await deleteVideo(video.id);
+      window.location.href = '/';
     } catch (err: any) {
       alert(err.message);
     }
@@ -153,18 +182,11 @@ export default function VideoPage() {
   };
 
   const isMyComment = (c: Comment) => currentUser && c.userId === currentUser.id;
+  const canDeleteVideo = currentUser?.isAdmin;
 
   return (
     <div className="animate-fade-in">
       <div className="mx-auto max-w-[1400px] px-3 sm:px-6 lg:px-8">
-        <nav className="flex items-center gap-1.5 py-3 text-xs text-zinc-500 sm:text-sm">
-          <Link to="/" className="hover:text-zinc-900">Главная</Link>
-          <ChevronRight className="h-3 w-3" />
-          <Link to="/anime" className="hover:text-zinc-900">Аниме</Link>
-          <ChevronRight className="h-3 w-3" />
-          <span className="line-clamp-1 text-zinc-900">{video.title}</span>
-        </nav>
-
         <VideoPlayer
           videoSrc={video.videoSrc}
           poster={video.poster}
@@ -180,6 +202,7 @@ export default function VideoPage() {
               <span className="flex items-center gap-1.5 rounded-md bg-zinc-900 px-2 py-0.5 text-xs font-bold text-white">
                 <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
                 {video.rating > 0 ? video.rating.toFixed(1) : '—'}
+                <span className="text-zinc-400 font-normal">/10</span>
               </span>
               <span className="flex items-center gap-1.5 text-zinc-600">
                 <Eye className="h-4 w-4" /> {video.views.toLocaleString('ru')}
@@ -208,6 +231,15 @@ export default function VideoPage() {
               <button onClick={handleShare} className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-900 transition-all hover:scale-105 hover:bg-zinc-50">
                 {copied ? <><Check className="h-4 w-4 text-emerald-600" /> Скопировано</> : <><Share2 className="h-4 w-4" /> Поделиться</>}
               </button>
+              {canDeleteVideo && (
+                <button
+                  onClick={handleDeleteVideo}
+                  className="flex items-center gap-2 rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 transition-all hover:scale-105 hover:bg-red-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Удалить видео
+                </button>
+              )}
             </div>
 
             {video.description && (
@@ -259,7 +291,7 @@ export default function VideoPage() {
               </div>
             )}
 
-            {/* Оценка + Комментарии */}
+            {/* Комментарии */}
             <div className="mt-8">
               <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-zinc-900">
                 Комментарии <span className="text-sm font-normal text-zinc-500">({comments.length})</span>
@@ -267,29 +299,11 @@ export default function VideoPage() {
 
               {currentUser ? (
                 <div className="mb-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                  {rating.userScore !== null && (
-                    <div className="mb-2 text-xs text-zinc-500">Ваша оценка: <strong className="text-zinc-900">{rating.userScore}/10</strong></div>
-                  )}
-                  <div className="mb-3 flex flex-wrap items-center gap-1">
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                      <button
-                        key={n}
-                        onClick={() => submitRating(n)}
-                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold transition-all ${
-                          rating.userScore === n ? 'bg-yellow-400 text-yellow-900 scale-105' :
-                          'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                        }`}
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-
                   <textarea
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder="Напишите комментарий..."
-                    rows={2}
+                    rows={3}
                     className="w-full resize-none rounded-xl bg-zinc-50 px-3 py-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 outline-none focus:bg-white focus:ring-2 focus:ring-zinc-900/10"
                   />
                   <div className="mt-2 flex justify-end">
@@ -305,7 +319,7 @@ export default function VideoPage() {
               ) : (
                 <div className="mb-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-5 text-center">
                   <LogIn className="mx-auto mb-2 h-7 w-7 text-zinc-400" />
-                  <p className="text-sm font-medium text-zinc-700">Войдите в аккаунт, чтобы оценивать и комментировать</p>
+                  <p className="text-sm font-medium text-zinc-700">Войдите в аккаунт, чтобы комментировать</p>
                   <p className="mt-1 text-xs text-zinc-500">Нажмите кнопку «Вход» в правом верхнем углу</p>
                 </div>
               )}
@@ -332,11 +346,11 @@ export default function VideoPage() {
                             <span className="text-xs text-zinc-500">·</span>
                             <span className="text-xs text-zinc-500">{formatRelativeTime(c.createdAt)}</span>
                           </div>
-                          {isMyComment(c) && (
+                          {currentUser && (isMyComment(c) || currentUser.isAdmin) && (
                             <button
                               onClick={() => handleDeleteComment(c.id)}
                               className="flex h-6 w-6 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-red-500"
-                              title="Удалить"
+                              title={isMyComment(c) ? 'Удалить' : 'Удалить (админ)'}
                             >
                               <Trash2 className="h-3 w-3" />
                             </button>
@@ -361,6 +375,42 @@ export default function VideoPage() {
                 </div>
               )}
             </div>
+
+            {/* Рейтинг — ВНИЗУ, после комментариев, на видном месте */}
+            <div className="mt-8 rounded-2xl border border-zinc-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-zinc-900">Оцените аниме</h3>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {rating.count > 0
+                      ? `Средняя оценка: ${rating.average.toFixed(1)}/10 (${rating.count} ${pluralize(rating.count, ['голос', 'голоса', 'голосов'])})`
+                      : 'Будьте первым!'}
+                  </p>
+                </div>
+                {rating.userScore !== null && currentUser && (
+                  <span className="text-xs text-zinc-500">Ваша оценка: <strong className="text-zinc-900">{rating.userScore}/10</strong></span>
+                )}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => submitRating(n)}
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold transition-all ${
+                      rating.userScore === n ? 'bg-yellow-400 text-yellow-900 scale-105 ring-2 ring-yellow-500' :
+                      rating.userScore !== null && n <= rating.userScore ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                    }`}
+                    title={`Поставить ${n}/10`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              {!currentUser && (
+                <p className="mt-2 text-xs text-zinc-400">Войдите, чтобы поставить оценку</p>
+              )}
+            </div>
           </div>
 
           <aside className="space-y-3 lg:sticky lg:top-20 lg:self-start">
@@ -377,4 +427,13 @@ export default function VideoPage() {
       </div>
     </div>
   );
+}
+
+function pluralize(n: number, forms: [string, string, string]) {
+  const n100 = n % 100;
+  const n10 = n % 10;
+  if (n100 >= 11 && n100 <= 14) return forms[2];
+  if (n10 === 1) return forms[0];
+  if (n10 >= 2 && n10 <= 4) return forms[1];
+  return forms[2];
 }

@@ -641,6 +641,122 @@ app.post('/api/admin/users/:id/admin', requireAdmin, async (req: any, res) => {
   }
 });
 
+// Удалить видео (только админ или автор)
+app.delete('/api/videos/:id', requireAuth, async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const check = await query('SELECT id, created_by, video_url FROM videos WHERE id = $1', [id]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Не найдено' });
+    const video = check.rows[0];
+    if (video.created_by !== req.user.id && !req.user.isAdmin) {
+      return res.status(403).json({ error: 'Нет доступа' });
+    }
+    // Удаляем файл
+    try {
+      const fs = await import('fs');
+      const filepath = join(process.cwd(), video.video_url.replace(/^\//, ''));
+      if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+      const thumbPath = join(THUMB_DIR, `${id}.svg`);
+      if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+    } catch {}
+    // Удаляем записи
+    await query('DELETE FROM videos WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Delete video error:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Админ может удалить любой комментарий
+app.delete('/api/admin/comments/:id', requireAdmin, async (req: any, res) => {
+  try {
+    const commentId = parseInt(req.params.id);
+    const check = await query('SELECT id FROM comments WHERE id = $1', [commentId]);
+    if (check.rows.length === 0) return res.status(404).json({ error: 'Не найден' });
+    await query('DELETE FROM comments WHERE id = $1', [commentId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Admin delete comment error:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// Сменить пароль (свой)
+app.post('/api/auth/change-password', requireAuth, async (req: any, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) return res.status(400).json({ error: 'Заполните все поля' });
+    if (newPassword.length < 4) return res.status(400).json({ error: 'Новый пароль: минимум 4 символа' });
+
+    const result = await query('SELECT password_hash FROM users WHERE id = $1', [req.user.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Пользователь не найден' });
+
+    const valid = await verifyPassword(oldPassword, result.rows[0].password_hash);
+    if (!valid) return res.status(401).json({ error: 'Неверный текущий пароль' });
+
+    const hash = await hashPassword(newPassword);
+    await query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Change password error:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// === СКРИПТ ДЛЯ СОЗДАНИЯ ПЕРВОГО АДМИНА ===
+// Вызывается через: curl -X POST http://localhost:3000/api/setup-admin -H "Content-Type: application/json" -d '{"username":"Morfin","password":"..."}'
+// Защита: работает только если в базе НЕТ ни одного админа
+app.post('/api/setup-admin', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Укажите username и password' });
+    if (username.length < 2 || username.length > 32) return res.status(400).json({ error: 'Ник: 2-32 символа' });
+    if (password.length < 4) return res.status(400).json({ error: 'Пароль: минимум 4 символа' });
+
+    // Проверяем что в базе нет ни одного админа
+    const existingAdmins = await query('SELECT id FROM users WHERE is_admin = TRUE LIMIT 1');
+    if (existingAdmins.rows.length > 0) {
+      return res.status(403).json({ error: 'Админ уже существует. Используйте админ-панель для выдачи прав.' });
+    }
+
+    const hash = await hashPassword(password);
+    const colors = ['#ff85b8', '#7aa3ff', '#7affb3', '#ffd17a', '#c87aff', '#ff7a7a', '#7ae5ff', '#b3ff7a', '#ffae7a', '#7affe5'];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const result = await query(
+      `INSERT INTO users (username, password_hash, avatar_color, is_admin, can_upload)
+       VALUES ($1, $2, $3, TRUE, TRUE)
+       ON CONFLICT (username) DO UPDATE SET password_hash = $2, is_admin = TRUE, can_upload = TRUE
+       RETURNING id, username, avatar_color, is_admin, can_upload`,
+      [username, hash, color]
+    );
+    const user = result.rows[0];
+    const token = signToken({
+      id: user.id,
+      username: user.username,
+      avatarColor: user.avatar_color,
+      isAdmin: user.is_admin,
+      canUpload: user.can_upload,
+    });
+    res.cookie('token', token, { httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' });
+    res.json({
+      ok: true,
+      message: 'Создан первый администратор',
+      user: {
+        id: user.id,
+        username: user.username,
+        avatarColor: user.avatar_color,
+        isAdmin: user.is_admin,
+        canUpload: user.can_upload,
+      },
+      token,
+    });
+  } catch (err) {
+    console.error('Setup admin error:', err);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
 // === РАЗДАЧА ФРОНТЕНДА (SPA) ===
 // ВАЖНО: должно быть после всех API маршрутов
 if (existsSync(DIST_DIR)) {
@@ -685,38 +801,16 @@ if (existsSync(DIST_DIR)) {
 }
 
 // === ЗАПУСК ===
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'Morfin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'morfin2024';
-
-async function ensureAdmin() {
-  const existing = await query('SELECT id FROM users WHERE username = $1', [ADMIN_USERNAME]);
-  if (existing.rows.length === 0) {
-    const hash = await hashPassword(ADMIN_PASSWORD);
-    const color = '#ff85b8';
-    await query(
-      `INSERT INTO users (username, password_hash, avatar_color, is_admin, can_upload)
-       VALUES ($1, $2, $3, TRUE, TRUE)
-       ON CONFLICT (username) DO UPDATE SET is_admin = TRUE, can_upload = TRUE`,
-      [ADMIN_USERNAME, hash, color]
-    );
-    console.log(`[init] Создан админ: ${ADMIN_USERNAME}`);
-  } else {
-    await query(
-      'UPDATE users SET is_admin = TRUE, can_upload = TRUE WHERE username = $1',
-      [ADMIN_USERNAME]
-    );
-    console.log(`[init] Админ подтверждён: ${ADMIN_USERNAME}`);
-  }
-}
-
 async function start() {
   await initDatabase();
-  await ensureAdmin();
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[server] CorpMult API запущен на порту ${PORT}`);
     console.log(`[server] Режим: ${NODE_ENV}`);
-    console.log(`[server] Админ: ${ADMIN_USERNAME}`);
+    console.log(`[server] Создайте первого админа:`);
+    console.log(`[server]   curl -X POST $API/api/setup-admin \\`);
+    console.log(`[server]     -H "Content-Type: application/json" \\`);
+    console.log(`[server]     -d '{"username":"Morfin","password":"ваш_пароль"}'`);
   });
 }
 

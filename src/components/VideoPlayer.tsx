@@ -47,6 +47,9 @@ export default function VideoPlayer({
   const onViewRef = useRef(onView);
   const viewRecordedRef = useRef(false);
   const maxWatchedRef = useRef(0);
+  const autoplayRef = useRef(true);
+  // Метка для подавления лишних предупреждений (используется в onLoadedMetadata)
+  void autoplayRef;
 
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -57,7 +60,19 @@ export default function VideoPlayer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
-  const [quality, setQuality] = useState<Quality>(initialQuality);
+  // Загружаем сохранённое качество из LocalStorage
+  const [quality, setQuality] = useState<Quality>(() => {
+    try {
+      const saved = localStorage.getItem('corpmult_quality');
+      if (saved && QUALITIES.includes(saved as Quality)) return saved as Quality;
+    } catch {}
+    return initialQuality;
+  });
+
+  // Сохраняем выбор качества
+  useEffect(() => {
+    try { localStorage.setItem('corpmult_quality', quality); } catch {}
+  }, [quality]);
   const [voiceover, setVoiceover] = useState<string>(initialVoiceover || voiceovers[0] || 'Оригинал');
   const [subtitles, setSubtitles] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -104,8 +119,17 @@ export default function VideoPlayer({
     const onLoadedMetadata = () => {
       setDuration(video.duration || 0);
       setLoading(false);
+      // Если есть сохранённая позиция — перематываем
       if (initialPosition > 0 && initialPosition < (video.duration || 0) - 5) {
         try { video.currentTime = initialPosition; } catch {}
+      }
+      // Автозапуск при первой загрузке
+      if (autoplayRef.current && !showResumePrompt) {
+        autoplayRef.current = false;
+        // Небольшая задержка чтобы избежать блокировки браузером
+        setTimeout(() => {
+          video.play().catch(() => {});
+        }, 100);
       }
     };
     const onTimeUpdate = () => {
