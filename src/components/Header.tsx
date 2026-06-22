@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Heart, Upload, Menu, X, Search, LogIn, LogOut, User, Shield } from 'lucide-react';
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
-import { searchAnime, users, LOGO_URL } from '../services/api';
+import { searchAnime, users } from '../services/api';
 import type { Anime, User as UserType } from '../types';
 
 function useCurrentUser(): UserType | null {
@@ -94,10 +94,9 @@ export default function Header() {
           {/* Логотип и название */}
           <Link to="/" className="flex flex-shrink-0 items-center gap-2 transition-opacity hover:opacity-80">
             <img
-              src={LOGO_URL}
+              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR9pLqCYWW8juTCyqoWx93mcC9CMFW5oQfygZ5IxsdmnPJb3O0VNVnxle0&s=10"
               alt="CorpMult"
-              className="h-9 w-9 object-contain"
-              style={{ mixBlendMode: 'multiply' }}
+              className="h-9 w-9 rounded-lg object-cover"
             />
             <span className="hidden text-lg font-black tracking-tight text-zinc-900 sm:inline">CorpMult</span>
           </Link>
@@ -106,11 +105,10 @@ export default function Header() {
           <div ref={searchContainerRef} className="relative flex-1 min-w-0">
             <button
               onClick={() => setSearchOpen(!searchOpen)}
-              className="flex h-9 w-full items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3.5 text-sm transition-colors hover:bg-zinc-100"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 transition-all hover:bg-zinc-200 hover:text-zinc-900"
               aria-label="Поиск"
             >
-              <Search className="h-4 w-4 flex-shrink-0 text-zinc-500" />
-              <span className="flex-1 text-left text-zinc-400">Поиск аниме по названию...</span>
+              <Search className="h-4 w-4" />
             </button>
 
             {searchOpen && (

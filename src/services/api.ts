@@ -10,7 +10,7 @@ import {
   statsCache, userCache, favoritesCache,
 } from './cache';
 
-const LOGO_URL = 'https://cdn.pixabay.com/photo/2017/03/16/21/18/logo-2150297_640.png';
+// Старый логотип больше не используется — оставлено для справки
 const API_BASE = '/api';
 
 // === HTTP ===
@@ -478,5 +478,4 @@ export async function changePassword(oldPassword: string, newPassword: string) {
   return http('/auth/change-password', { method: 'POST', body: JSON.stringify({ oldPassword, newPassword }) });
 }
 
-export { LOGO_URL };
 export type Video = Anime;

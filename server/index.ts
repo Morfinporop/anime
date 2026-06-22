@@ -841,10 +841,8 @@ async function start() {
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`[server] ✓ CorpMult API запущен на порту ${PORT}`);
       console.log(`[server] Режим: ${NODE_ENV}`);
-      console.log(`[server] Создайте первого админа: curl -X POST $API/api/setup-admin -d '{"username":"Morfin","password":"..."}'`);
     });
 
-    // Обработка ошибок сервера
     server.on('error', (err: any) => {
       console.error('[server.error]', err);
       if (err.code === 'EADDRINUSE') {
@@ -853,12 +851,37 @@ async function start() {
       }
     });
 
-    // Потом инициализируем БД (если упадёт — сервер всё равно работает)
+    // Потом инициализируем БД
     try {
       await initDatabase();
-      console.log('[init] База данных готова');
-    } catch (dbErr) {
-      console.error('[init.error] Не удалось инициализировать БД:', dbErr);
+      console.log('[init] ✓ База данных готова');
+
+      // Автоматически делаем первого пользователя (id=1) админом с правами
+      try {
+        const result = await query(
+          `UPDATE users SET is_admin = TRUE, can_upload = TRUE WHERE id = 1 RETURNING id, username`
+        );
+        if (result.rows.length > 0) {
+          console.log(`[init] ✓ Пользователь #1 (${result.rows[0].username}) автоматически стал админом`);
+        } else {
+          // Нет пользователя — создаём Morfin с дефолтным паролем
+          const hash = await hashPassword(process.env.ADMIN_PASSWORD || 'morfin2024');
+          const insertResult = await query(
+            `INSERT INTO users (username, password_hash, avatar_color, is_admin, can_upload)
+             VALUES ($1, $2, $3, TRUE, TRUE)
+             ON CONFLICT (username) DO UPDATE SET is_admin = TRUE, can_upload = TRUE, password_hash = $2
+             RETURNING id, username`,
+            ['Morfin', hash, '#ff85b8']
+          );
+          if (insertResult.rows.length > 0) {
+            console.log(`[init] ✓ Создан админ Morfin (id=${insertResult.rows[0].id}, пароль: ${process.env.ADMIN_PASSWORD || 'morfin2024'})`);
+          }
+        }
+      } catch (adminErr: any) {
+        console.warn('[init.warn] Не удалось создать/назначить админа:', adminErr.message);
+      }
+    } catch (dbErr: any) {
+      console.error('[init.error] Не удалось инициализировать БД:', dbErr.message);
       console.error('[init.error] Сервер продолжает работать но БД может быть недоступна');
     }
   } catch (err) {
