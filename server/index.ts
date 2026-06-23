@@ -1,94 +1,67 @@
-app.post('/api/seasons/:seasonId/episodes', requireUploadPermission, upload.fields([
-  { name: 'video', maxCount: 1 },
-  { name: 'poster', maxCount: 1 },
-]), async (req: any, res) => {
+async function start() {
   try {
-    const { seasonId } = req.params;
-    const { episodeNumber = '1', title = '' } = req.body;
-    const videoFile = req.files?.video?.[0];
-    const posterFile = req.files?.poster?.[0];
-    if (!videoFile) return res.status(400).json({ error: 'Видеофайл не загружен' });
+    console.log(`[server] Запуск на порту ${PORT}...`);
 
-    const ext = videoFile.mimetype.includes('webm') ? 'webm' : 'mp4';
-    const filename = `${seasonId}_${Date.now()}_${episodeNumber}.${ext}`;
-    const filepath = join(UPLOAD_DIR, filename);
-    writeFileSync(filepath, videoFile.buffer);
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`[server] ✓ CorpMult API запущен на порту ${PORT}`);
+      console.log(`[server] Режим: ${NODE_ENV}`);
+    });
 
-    const sizeMB = videoFile.size / 1024 / 1024;
-    console.log(`[upload] Серия ${episodeNumber}: ${sizeMB.toFixed(1)} МБ`);
-
-    if (sizeMB > 50) {
-      try {
-        const crf = sizeMB > 500 ? '35' : sizeMB > 200 ? '32' : '28';
-        const videoBitrate = sizeMB > 500 ? '800k' : sizeMB > 200 ? '1200k' : '1800k';
-        const maxHeight = sizeMB > 500 ? '480' : '720';
-        
-        await new Promise<void>((resolve, reject) => {
-          const tmpPath = `${filepath}.tmp.mp4`;
-          const cmd = `ffmpeg -i "${filepath}" -c:v libx264 -preset fast -crf ${crf} -vf "scale='min(1280,iw)':-2" -maxrate ${videoBitrate} -bufsize ${parseInt(videoBitrate) * 2}k -c:a aac -b:a 96k -movflags +faststart -pix_fmt yuv420p -y "${tmpPath}"`;
-          
-          exec(cmd, { timeout: 600000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
-            if (err) {
-              console.error(`[compress] Ошибка: ${err.message}`);
-              console.error(`[compress] stderr: ${stderr}`);
-              resolve();
-              return;
-            }
-            
-            try {
-              if (existsSync(tmpPath)) {
-                const newSize = statSync(tmpPath).size / 1024 / 1024;
-                unlinkSync(filepath);
-                renameSync(tmpPath, filepath);
-                console.log(`[compress] ${sizeMB.toFixed(1)} МБ → ${newSize.toFixed(1)} МБ (${((1 - newSize / sizeMB) * 100).toFixed(0)}%)`);
-              }
-            } catch (e: any) {
-              console.error(`[compress] Ошибка замены: ${e.message}`);
-            }
-            resolve();
-          });
-        });
-      } catch (e: any) {
-        console.error(`[compress] Критическая ошибка: ${e.message}`);
+    server.on('error', (err: any) => {
+      console.error('[server.error]', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[fatal] Порт ${PORT} уже занят`);
+        process.exit(1);
       }
-    }
+    });
 
-    let durationSeconds = 0;
-    try {
-      await new Promise<void>((resolve) => {
-        exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filepath}"`, (err, stdout) => {
-          if (!err && stdout) {
-            durationSeconds = Math.round(parseFloat(stdout.trim()) || 0);
-          }
-          resolve();
-        });
+    const shutdown = (signal: string) => {
+      console.log(`[shutdown] Получен сигнал ${signal}`);
+      server.close(() => {
+        console.log('[shutdown] Сервер остановлен');
+        process.exit(0);
       });
-    } catch (e: any) {
-      console.warn(`[ffprobe] Не удалось получить длительность: ${e.message}`);
-    }
-
-    let posterBuffer: Buffer | null = null;
-    let posterMime: string | null = null;
-    if (posterFile) {
-      posterBuffer = posterFile.buffer;
-      posterMime = posterFile.mimetype;
-    }
-
-    const videoUrl = `/uploads/${filename}`;
+      setTimeout(() => {
+        console.error('[shutdown] Принудительная остановка');
+        process.exit(1);
+      }, 10000);
+    };
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
 
     try {
-      const result = await query(
-        `INSERT INTO episodes (season_id, episode_number, title, video_url, duration_seconds, poster_data, poster_mime)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [seasonId, parseInt(episodeNumber), title || `Серия ${episodeNumber}`, videoUrl, durationSeconds, posterBuffer, posterMime]
-      );
-      res.json({ ok: true, episodeId: result.rows[0].id, videoUrl });
-    } catch (err: any) {
-      if (err.message?.includes('duplicate key')) return res.status(409).json({ error: 'Такая серия уже есть в этом сезоне' });
-      throw err;
+      await initDatabase();
+      console.log('[init] ✓ База данных готова');
+
+      try {
+        const result = await query(
+          `UPDATE users SET is_admin = TRUE, can_upload = TRUE WHERE id = 1 RETURNING id, username`
+        );
+        if (result.rows.length > 0) {
+          console.log(`[init] ✓ Пользователь #1 (${result.rows[0].username}) автоматически стал админом`);
+        } else {
+          const hash = await hashPassword(process.env.ADMIN_PASSWORD || 'morfin2024');
+          const insertResult = await query(
+            `INSERT INTO users (username, password_hash, avatar_color, is_admin, can_upload)
+             VALUES ($1, $2, $3, TRUE, TRUE)
+             ON CONFLICT (username) DO UPDATE SET is_admin = TRUE, can_upload = TRUE, password_hash = $2
+             RETURNING id, username`,
+            ['Morfin', hash, '#ff85b8']
+          );
+          if (insertResult.rows.length > 0) {
+            console.log(`[init] ✓ Создан админ Morfin (id=${insertResult.rows[0].id})`);
+          }
+        }
+      } catch (adminErr: any) {
+        console.warn('[init.warn] Не удалось создать/назначить админа:', adminErr.message);
+      }
+    } catch (dbErr: any) {
+      console.error('[init.error] Не удалось инициализировать БД:', dbErr.message);
     }
-  } catch (err: any) {
-    console.error('Upload episode error:', err);
-    res.status(500).json({ error: 'Ошибка загрузки' });
+  } catch (err) {
+    console.error('[fatal] Ошибка запуска:', err);
+    process.exit(1);
   }
-});
+}
+
+start();
