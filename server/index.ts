@@ -93,7 +93,7 @@ function generatePosterSvg(title: string): string {
     <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffd9ea"/><stop offset="100%" stop-color="#ffb0d0"/></linearGradient></defs>
     <rect width="400" height="600" fill="url(#g)"/>
     <text x="200" y="320" text-anchor="middle" font-family="Georgia, serif" font-size="120" font-weight="700" fill="#e84a8a" opacity="0.5">${initials}</text>
-    <text x="200" y="560" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#e84a8a" opacity="0.7" letter-spacing="4">CORPMULT</text>
+    <text x="200" y="560" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#e84a8a" opacity="0.7" letter-spacing="4">ANIMEWORLD</text>
   </svg>`;
 }
 
@@ -126,6 +126,14 @@ app.post('/api/auth/login', async (req, res) => {
     const result = await query('SELECT id, username, password_hash, avatar_color, is_admin, can_upload FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) return res.status(401).json({ error: 'Неверный ник или пароль' });
     const user = result.rows[0];
+    
+    // Проверка бана по IP
+    const userIp = req.ip || req.connection?.remoteAddress || 'unknown';
+    const banCheck = await query('SELECT 1 FROM bans WHERE user_id = $1 OR ip_address = $2', [user.id, userIp]);
+    if (banCheck.rows.length > 0) {
+      return res.status(403).json({ error: 'Вы заблокированы' });
+    }
+    
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Неверный ник или пароль' });
     const token = signToken({ id: user.id, username: user.username, avatarColor: user.avatar_color, isAdmin: user.is_admin, canUpload: user.can_upload });
@@ -727,11 +735,20 @@ app.post('/api/history/:episodeId', requireAuth, async (req: any, res) => {
 // === АДМИНКА ===
 app.get('/api/admin/users', requireAdmin, async (req: any, res) => {
   try {
-    const result = await query('SELECT id, username, avatar_color, is_admin, can_upload, created_at FROM users ORDER BY id ASC');
+    const result = await query(`
+      SELECT u.id, u.username, u.avatar_color, u.is_admin, u.can_upload, u.created_at,
+             COALESCE(b.ip_address, '') as ip, 
+             CASE WHEN b.id IS NOT NULL THEN TRUE ELSE FALSE END as is_banned
+      FROM users u
+      LEFT JOIN bans b ON b.user_id = u.id
+      ORDER BY u.id ASC
+    `);
     res.json({
       users: result.rows.map((u) => ({
         id: u.id, username: u.username, avatarColor: u.avatar_color,
-        isAdmin: u.is_admin, canUpload: u.can_upload, createdAt: u.created_at,
+        isAdmin: u.is_admin, canUpload: u.can_upload, 
+        isBanned: u.is_banned, ip: u.ip || '',
+        createdAt: u.created_at,
       })),
     });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
@@ -751,6 +768,27 @@ app.post('/api/admin/users/:id/admin', requireAdmin, async (req: any, res) => {
     const userId = parseInt(req.params.id);
     const { isAdmin } = req.body;
     await query('UPDATE users SET is_admin = $1 WHERE id = $2', [!!isAdmin, userId]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
+});
+
+app.post('/api/admin/users/:id/ban', requireAdmin, async (req: any, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const { isBanned } = req.body;
+    
+    if (isBanned) {
+      // Получаем IP пользователя (если есть сессия)
+      const userIp = req.ip || req.connection?.remoteAddress || 'unknown';
+      // Баним пользователя и сохраняем IP
+      await query(
+        'INSERT INTO bans (user_id, ip_address) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [userId, userIp]
+      );
+    } else {
+      // Разбаниваем
+      await query('DELETE FROM bans WHERE user_id = $1', [userId]);
+    }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
 });

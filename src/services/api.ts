@@ -10,7 +10,7 @@ import {
   statsCache, userCache, favoritesCache,
 } from './cache';
 
-const LOGO_URL = 'https://cdn.pixabay.com/photo/2017/03/16/21/18/logo-2150297_640.png';
+const LOGO_URL = '/images/logov.png';
 const API_BASE = '/api';
 
 // === HTTP ===
@@ -465,12 +465,21 @@ export const admin = {
   async setAdmin(userId: number, isAdmin: boolean) {
     await http(`/admin/users/${userId}/admin`, { method: 'POST', body: JSON.stringify({ isAdmin }) });
   },
+  async toggleBan(userId: number, isBanned: boolean) {
+    await http(`/admin/users/${userId}/ban`, { method: 'POST', body: JSON.stringify({ isBanned }) });
+  },
   async deleteComment(commentId: number) {
     await http(`/admin/comments/${commentId}`, { method: 'DELETE' });
   },
   async deleteAnime(animeId: number) {
     await fetch(`${API_BASE}/admin/anime/${animeId}`, { method: 'DELETE', credentials: 'include' });
     catalogCache.write([]);
+  },
+  async deleteSeason(seasonId: number) {
+    await fetch(`${API_BASE}/admin/seasons/${seasonId}`, { method: 'DELETE', credentials: 'include' });
+  },
+  async deleteEpisode(episodeId: number) {
+    await fetch(`${API_BASE}/admin/episodes/${episodeId}`, { method: 'DELETE', credentials: 'include' });
   },
 };
 

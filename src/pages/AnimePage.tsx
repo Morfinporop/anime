@@ -87,6 +87,8 @@ export default function AnimePage() {
       setLikesCount(result.likes);
       setDislikesCount(result.dislikes);
       setUserVote(result.userVote as -1 | 0 | 1);
+      // Обновляем данные аниме
+      setAnime({ ...anime, likesCount: result.likes, dislikesCount: result.dislikes });
     } catch (err: any) { alert(err.message); }
   };
 

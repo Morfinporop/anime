@@ -198,3 +198,12 @@ CREATE INDEX IF NOT EXISTS idx_views_episode ON views(episode_id);
 CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id, watched_at DESC);
 CREATE INDEX IF NOT EXISTS idx_anime_created_at ON anime(created_at DESC);
+-- 16. Бан пользователей
+CREATE TABLE IF NOT EXISTS bans (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE CASCADE,
+  banned_at TIMESTAMP DEFAULT NOW(),
+  ip_address VARCHAR(45)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bans_user ON bans(user_id);

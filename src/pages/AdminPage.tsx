@@ -9,8 +9,18 @@ interface AdminUser {
   avatarColor: string;
   isAdmin: boolean;
   canUpload: boolean;
+  isBanned: boolean;
+  ip: string;
   createdAt: string;
 }
+
+// Фильтрация по нику или ID
+const filteredList = searchQuery.trim() 
+  ? list.filter(u => 
+      u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      String(u.id).includes(searchQuery)
+    )
+  : list;
 
 export default function AdminPage() {
   const [currentUser, setCurrentUser] = useState<{ id: number; username: string; isAdmin: boolean } | null>(null);
@@ -18,6 +28,7 @@ export default function AdminPage() {
   const [list, setList] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     users.getCurrent().then((u) => {
@@ -57,6 +68,16 @@ export default function AdminPage() {
     try {
       await admin.setAdmin(userId, !current);
       setList(list.map((u) => u.id === userId ? { ...u, isAdmin: !current } : u));
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const toggleBan = async (userId: number, current: boolean) => {
+    if (!confirm(current ? 'Разбанить пользователя?' : 'Забанить пользователя? Это запретит ему вход на сайт.')) return;
+    try {
+      await admin.toggleBan(userId, !current);
+      setList(list.map((u) => u.id === userId ? { ...u, isBanned: !current } : u));
     } catch (err: any) {
       alert(err.message);
     }
@@ -104,15 +125,19 @@ export default function AdminPage() {
       </Link>
 
       <div className="mb-6 animate-slide-up">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-zinc-900 text-white">
-            <Shield className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl">Админ-панель</h1>
-            <p className="mt-1 text-sm text-zinc-500">Управление пользователями и правами</p>
-          </div>
-        </div>
+        <h1 className="text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl">Админ-панель</h1>
+        <p className="mt-1 text-sm text-zinc-500">Управление пользователями, правами и контентом</p>
+      </div>
+
+      {/* Поиск пользователей */}
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder="Поиск по нику или ID..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+        />
       </div>
 
       {error && (
@@ -135,19 +160,20 @@ export default function AdminPage() {
               </tr>
             </thead>
             <tbody>
-              {list.map((u) => (
-                <tr key={u.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50/50">
+              {filteredList.map((u) => (
+                <tr key={u.id} className={`border-b border-zinc-100 last:border-0 hover:bg-zinc-50/50 ${u.isBanned ? 'bg-red-50' : ''}`}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div
                         className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
-                        style={{ backgroundColor: u.avatarColor }}
+                        style={{ backgroundColor: u.isBanned ? '#ef4444' : u.avatarColor }}
                       >
                         {u.username[0].toUpperCase()}
                       </div>
                       <div>
                         <div className="font-semibold text-zinc-900">{u.username}</div>
                         <div className="text-[11px] text-zinc-500 sm:hidden">ID: {u.id}</div>
+                        {u.isBanned && <span className="text-[10px] font-bold text-red-600">ЗАБАНЕН</span>}
                       </div>
                     </div>
                   </td>
@@ -164,7 +190,12 @@ export default function AdminPage() {
                           Загрузка
                         </span>
                       )}
-                      {!u.isAdmin && !u.canUpload && (
+                      {u.isBanned && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-700">
+                          Забанен
+                        </span>
+                      )}
+                      {!u.isAdmin && !u.canUpload && !u.isBanned && (
                         <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
                           Пользователь
                         </span>
@@ -199,6 +230,19 @@ export default function AdminPage() {
                         {u.isAdmin ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
                         <span className="hidden sm:inline">Админ</span>
                       </button>
+                      <button
+                        onClick={() => toggleBan(u.id, u.isBanned)}
+                        disabled={u.id === currentUser.id}
+                        className={`flex h-8 items-center gap-1 rounded-full px-3 text-xs font-medium transition-colors ${
+                          u.isBanned
+                            ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                            : 'border border-red-200 bg-white text-red-700 hover:bg-red-50'
+                        } disabled:opacity-40`}
+                        title={u.id === currentUser.id ? 'Нельзя забанить себя' : ''}
+                      >
+                        {u.isBanned ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                        <span className="hidden sm:inline">Бан</span>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -208,12 +252,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-        <h3 className="text-sm font-bold text-zinc-900">Подсказка</h3>
-        <p className="mt-1 text-xs text-zinc-600">
-          Админ-аккаунт <strong>Morfin</strong> создаётся автоматически при первом запуске сервера.
+      <div className="mt-6">
+        <p className="text-xs text-zinc-500">
+          Админ-аккаунт создаётся автоматически при первом запуске сервера.
           Пароль задаётся через переменную окружения <code className="rounded bg-white px-1 py-0.5">ADMIN_PASSWORD</code> (по умолчанию: <code className="rounded bg-white px-1 py-0.5">morfin2024</code>).
-          Смените пароль после первого входа.
         </p>
       </div>
     </div>
