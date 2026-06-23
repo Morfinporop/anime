@@ -7,9 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "server": "NODE_ENV=development tsx watch server/index.ts",
-    "start": "NODE_ENV=production tsx server/index.ts",
-    "start:prod": "npm run build && NODE_ENV=production tsx server/index.ts"
+    "server": "tsx watch server/index.ts",
+    "start": "tsx server/index.ts",
+    "start:prod": "npm run build && tsx server/index.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
