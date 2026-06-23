@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings,
-  SkipBack, SkipForward, Check, Loader2,
+  SkipBack, SkipForward, Subtitles, Check, Loader2,
 } from 'lucide-react';
 import type { Quality } from '../types';
 
@@ -504,6 +504,20 @@ export default function VideoPlayer({
 
           <span className="hidden rounded bg-white/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider sm:inline">{quality}</span>
           <span className="hidden rounded bg-white/15 px-2 py-0.5 text-[10px] font-bold tracking-wider sm:inline">{voiceover}</span>
+
+          <button
+            onClick={() => {
+              if (!subtitlesEnabled && !subtitleLang) setSubtitleLang('ru-RU');
+              const next = !subtitlesEnabled;
+              setSubtitlesEnabled(next);
+              if (next) setSubtitles('Русские');
+              else setSubtitles(null);
+            }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${subtitlesEnabled ? 'bg-white/20' : 'hover:bg-white/15'}`}
+            title={subtitlesEnabled ? 'Субтитры вкл' : 'Субтитры выкл'}
+          >
+            <Subtitles className="h-4 w-4" />
+          </button>
 
           <div className="relative">
             <button onClick={() => setShowSettings((s) => !s)} className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${showSettings ? 'bg-white/20' : 'hover:bg-white/15'}`}>

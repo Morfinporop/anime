@@ -4,7 +4,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'animeworld-dev-secret-change-me-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || 'corpmult-dev-secret-change-me-in-production';
 const JWT_EXPIRES = '30d';
 const AVATAR_COLORS = [
   '#ff85b8', '#7aa3ff', '#7affb3', '#ffd17a', '#c87aff',

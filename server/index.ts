@@ -1,4 +1,4 @@
-// AnimeWorld Backend Server
+// CorpMult Backend Server
 // Архитектура: anime → seasons → episodes
 // Express + PostgreSQL + JWT + загрузка видео + раздача статики
 
@@ -93,7 +93,7 @@ function generatePosterSvg(title: string): string {
     <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ffd9ea"/><stop offset="100%" stop-color="#ffb0d0"/></linearGradient></defs>
     <rect width="400" height="600" fill="url(#g)"/>
     <text x="200" y="320" text-anchor="middle" font-family="Georgia, serif" font-size="120" font-weight="700" fill="#e84a8a" opacity="0.5">${initials}</text>
-    <text x="200" y="560" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#e84a8a" opacity="0.7" letter-spacing="4">ANIMEWORLD</text>
+    <text x="200" y="560" text-anchor="middle" font-family="system-ui" font-size="14" font-weight="700" fill="#e84a8a" opacity="0.7" letter-spacing="4">CORPMULT</text>
   </svg>`;
 }
 
@@ -126,14 +126,6 @@ app.post('/api/auth/login', async (req, res) => {
     const result = await query('SELECT id, username, password_hash, avatar_color, is_admin, can_upload FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) return res.status(401).json({ error: 'Неверный ник или пароль' });
     const user = result.rows[0];
-    
-    // Проверка бана по IP
-    const userIp = req.ip || req.connection?.remoteAddress || 'unknown';
-    const banCheck = await query('SELECT 1 FROM bans WHERE user_id = $1 OR ip_address = $2', [user.id, userIp]);
-    if (banCheck.rows.length > 0) {
-      return res.status(403).json({ error: 'Вы заблокированы' });
-    }
-    
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Неверный ник или пароль' });
     const token = signToken({ id: user.id, username: user.username, avatarColor: user.avatar_color, isAdmin: user.is_admin, canUpload: user.can_upload });
@@ -185,13 +177,23 @@ app.get('/api/anime', async (req, res) => {
       LEFT JOIN (
         SELECT anime_id, COUNT(*) AS total_seasons FROM seasons GROUP BY anime_id
       ) se ON se.anime_id = a.id
+      LEFT JOIN (
+        SELECT e.season_id, COUNT(v.id) AS total_views
+        FROM episodes e LEFT JOIN views v ON v.episode_id = e.id GROUP BY e.season_id
+      ) ev ON ev.season_id IN (SELECT id FROM seasons WHERE anime_id = a.id)
+      LEFT JOIN (
+        SELECT season_id, SUM(total_views) AS total_views FROM (
+          SELECT e.season_id, COUNT(v.id) AS total_views
+          FROM episodes e LEFT JOIN views v ON v.episode_id = e.id GROUP BY e.season_id, e.id
+        ) s GROUP BY season_id
+      ) v ON v.season_id IN (SELECT id FROM seasons WHERE anime_id = a.id)
     `;
     const params: unknown[] = [];
     if (genre && genre !== 'all') {
       sql += ` WHERE $1 = ANY(a.genres) `;
       params.push(genre);
     }
-    sql += ` GROUP BY a.id, r.avg_rating, r.ratings_count, s.total_episodes, se.total_seasons ORDER BY ${orderBy} LIMIT 500`;
+    sql += ` GROUP BY a.id, r.avg_rating, r.ratings_count, v.total_views, s.total_episodes, se.total_seasons ORDER BY ${orderBy} LIMIT 500`;
     const result = await query(sql, params);
     const items = result.rows.map((row) => ({
       id: row.id,
@@ -204,7 +206,7 @@ app.get('/api/anime', async (req, res) => {
       dislikesCount: parseInt(row.dislikes_count) || 0,
       rating: parseFloat(row.avg_rating) || 0,
       ratingsCount: parseInt(row.ratings_count) || 0,
-      views: 0,
+      views: parseInt(row.views) || 0,
       totalEpisodes: parseInt(row.total_episodes) || 0,
       totalSeasons: parseInt(row.total_seasons) || 0,
       genres: row.genres || [],
@@ -650,7 +652,7 @@ app.post('/api/episodes/:id/view', requireAuth, async (req: any, res) => {
 app.get('/api/favorites', requireAuth, async (req: any, res) => {
   try {
     const result = await query(
-      `SELECT a.id, a.title, a.poster_data, a.year, a.likes_count
+      `SELECT a.id, a.title, a.poster_data, a.year, a.likes_count, a.rating
        FROM favorites f JOIN anime a ON a.id = f.anime_id
        WHERE f.user_id = $1 ORDER BY f.added_at DESC`,
       [req.user.id]
@@ -662,7 +664,7 @@ app.get('/api/favorites', requireAuth, async (req: any, res) => {
         poster: `/api/posters/anime/${a.id}`,
         year: a.year,
         likesCount: parseInt(a.likes_count) || 0,
-        rating: parseFloat(a.likes_count) || 0,
+        rating: parseFloat(a.rating) || 0,
       })),
     });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
@@ -725,20 +727,11 @@ app.post('/api/history/:episodeId', requireAuth, async (req: any, res) => {
 // === АДМИНКА ===
 app.get('/api/admin/users', requireAdmin, async (req: any, res) => {
   try {
-    const result = await query(`
-      SELECT u.id, u.username, u.avatar_color, u.is_admin, u.can_upload, u.created_at,
-             COALESCE(b.ip_address, '') as ip, 
-             CASE WHEN b.id IS NOT NULL THEN TRUE ELSE FALSE END as is_banned
-      FROM users u
-      LEFT JOIN bans b ON b.user_id = u.id
-      ORDER BY u.id ASC
-    `);
+    const result = await query('SELECT id, username, avatar_color, is_admin, can_upload, created_at FROM users ORDER BY id ASC');
     res.json({
       users: result.rows.map((u) => ({
         id: u.id, username: u.username, avatarColor: u.avatar_color,
-        isAdmin: u.is_admin, canUpload: u.can_upload, 
-        isBanned: u.is_banned, ip: u.ip || '',
-        createdAt: u.created_at,
+        isAdmin: u.is_admin, canUpload: u.can_upload, createdAt: u.created_at,
       })),
     });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
@@ -758,27 +751,6 @@ app.post('/api/admin/users/:id/admin', requireAdmin, async (req: any, res) => {
     const userId = parseInt(req.params.id);
     const { isAdmin } = req.body;
     await query('UPDATE users SET is_admin = $1 WHERE id = $2', [!!isAdmin, userId]);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
-});
-
-app.post('/api/admin/users/:id/ban', requireAdmin, async (req: any, res) => {
-  try {
-    const userId = parseInt(req.params.id);
-    const { isBanned } = req.body;
-    
-    if (isBanned) {
-      // Получаем IP пользователя (если есть сессия)
-      const userIp = req.ip || req.connection?.remoteAddress || 'unknown';
-      // Баним пользователя и сохраняем IP
-      await query(
-        'INSERT INTO bans (user_id, ip_address) VALUES ($1, $2) ON CONFLICT DO NOTHING',
-        [userId, userIp]
-      );
-    } else {
-      // Разбаниваем
-      await query('DELETE FROM bans WHERE user_id = $1', [userId]);
-    }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
 });
@@ -867,12 +839,10 @@ async function start() {
 
     // Сначала запускаем сервер, чтобы Railway видел что порт открыт
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(`[server] ✓ AnimeWorld API запущен на порту ${PORT}`);
+      console.log(`[server] ✓ CorpMult API запущен на порту ${PORT}`);
       console.log(`[server] Режим: ${NODE_ENV}`);
-      console.log(`[server] Создайте первого админа: curl -X POST $API/api/setup-admin -d '{"username":"Morfin","password":"..."}'`);
     });
 
-    // Обработка ошибок сервера
     server.on('error', (err: any) => {
       console.error('[server.error]', err);
       if (err.code === 'EADDRINUSE') {
@@ -881,12 +851,37 @@ async function start() {
       }
     });
 
-    // Потом инициализируем БД (если упадёт — сервер всё равно работает)
+    // Потом инициализируем БД
     try {
       await initDatabase();
-      console.log('[init] База данных готова');
-    } catch (dbErr) {
-      console.error('[init.error] Не удалось инициализировать БД:', dbErr);
+      console.log('[init] ✓ База данных готова');
+
+      // Автоматически делаем первого пользователя (id=1) админом с правами
+      try {
+        const result = await query(
+          `UPDATE users SET is_admin = TRUE, can_upload = TRUE WHERE id = 1 RETURNING id, username`
+        );
+        if (result.rows.length > 0) {
+          console.log(`[init] ✓ Пользователь #1 (${result.rows[0].username}) автоматически стал админом`);
+        } else {
+          // Нет пользователя — создаём Morfin с дефолтным паролем
+          const hash = await hashPassword(process.env.ADMIN_PASSWORD || 'morfin2024');
+          const insertResult = await query(
+            `INSERT INTO users (username, password_hash, avatar_color, is_admin, can_upload)
+             VALUES ($1, $2, $3, TRUE, TRUE)
+             ON CONFLICT (username) DO UPDATE SET is_admin = TRUE, can_upload = TRUE, password_hash = $2
+             RETURNING id, username`,
+            ['Morfin', hash, '#ff85b8']
+          );
+          if (insertResult.rows.length > 0) {
+            console.log(`[init] ✓ Создан админ Morfin (id=${insertResult.rows[0].id}, пароль: ${process.env.ADMIN_PASSWORD || 'morfin2024'})`);
+          }
+        }
+      } catch (adminErr: any) {
+        console.warn('[init.warn] Не удалось создать/назначить админа:', adminErr.message);
+      }
+    } catch (dbErr: any) {
+      console.error('[init.error] Не удалось инициализировать БД:', dbErr.message);
       console.error('[init.error] Сервер продолжает работать но БД может быть недоступна');
     }
   } catch (err) {
@@ -896,100 +891,3 @@ async function start() {
 }
 
 start();
-
-
-// Загрузка серии напрямую без сезона
-app.post('/api/anime/:animeId/episodes', requireUploadPermission, upload.fields([
-  { name: 'video', maxCount: 1 },
-  { name: 'poster', maxCount: 1 },
-]), async (req: any, res) => {
-  try {
-    const { animeId } = req.params;
-    const { episodeNumber = '1', title = '', seasonNumber = '1' } = req.body;
-    const videoFile = req.files?.video?.[0];
-    const posterFile = req.files?.poster?.[0];
-    if (!videoFile) return res.status(400).json({ error: 'Видеофайл не загружен' });
-
-    // Создаем сезон если нет
-    let seasonId;
-    const seasonCheck = await query(
-      'SELECT id FROM seasons WHERE anime_id = $1 AND season_number = $2',
-      [animeId, parseInt(seasonNumber)]
-    );
-    
-    if (seasonCheck.rows.length === 0) {
-      const seasonResult = await query(
-        `INSERT INTO seasons (anime_id, season_number, description) 
-         VALUES ($1, $2, $3) RETURNING id`,
-        [animeId, parseInt(seasonNumber), `Сезон ${seasonNumber}`]
-      );
-      seasonId = seasonResult.rows[0].id;
-    } else {
-      seasonId = seasonCheck.rows[0].id;
-    }
-
-    // Загружаем серию
-    const ext = videoFile.mimetype.includes('webm') ? 'webm' : 'mp4';
-    const filename = `${seasonId}_${Date.now()}_${episodeNumber}.${ext}`;
-    const filepath = join(UPLOAD_DIR, filename);
-    writeFileSync(filepath, videoFile.buffer);
-
-    const sizeMB = videoFile.size / 1024 / 1024;
-    console.log(`[upload] Серия ${episodeNumber}: ${sizeMB.toFixed(1)} МБ`);
-
-    // Сжатие
-    if (sizeMB > 50) {
-      try {
-        const crf = sizeMB > 500 ? '35' : sizeMB > 200 ? '32' : '28';
-        const videoBitrate = sizeMB > 500 ? '800k' : sizeMB > 200 ? '1200k' : '1800k';
-        const maxHeight = sizeMB > 500 ? '480' : '720';
-        await new Promise<void>((resolve) => {
-          const cmd = `ffmpeg -i "${filepath}" -c:v libx264 -preset fast -crf ${crf} -vf "scale='min(1280,iw)':-2,scale='if(gt(ih,${maxHeight}),${maxHeight},ih)':-2" -b:v ${videoBitrate} -c:a aac -b:a 96k -movflags +faststart -pix_fmt yuv420p -threads 0 -y "${filepath}.tmp.mp4"`;
-          exec(cmd, { timeout: 600000 }, (err) => {
-            if (err) { console.error(`[compress] ${err.message}`); resolve(); return; }
-            try {
-              unlinkSync(filepath);
-              renameSync(`${filepath}.tmp.mp4`, filepath);
-              const newSize = statSync(filepath).size / 1024 / 1024;
-              console.log(`[compress] ${sizeMB.toFixed(1)} МБ → ${newSize.toFixed(1)} МБ (${((1 - newSize / sizeMB) * 100).toFixed(0)}%)`);
-            } catch (e) { console.error(`[compress] ${e}`); }
-            resolve();
-          });
-        });
-      } catch (e) { console.error(`[compress] ${e}`); }
-    }
-
-    // Длительность
-    let durationSeconds = 0;
-    try {
-      await new Promise<void>((resolve) => {
-        exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filepath}"`, (err, stdout) => {
-          if (!err) durationSeconds = Math.round(parseFloat(stdout.trim()) || 0);
-          resolve();
-        });
-      });
-    } catch {}
-
-    // Постер серии
-    let posterBuffer: Buffer | null = null;
-    let posterMime: string | null = null;
-    if (posterFile) {
-      posterBuffer = posterFile.buffer;
-      posterMime = posterFile.mimetype;
-    }
-
-    const videoUrl = `/uploads/${filename}`;
-
-    try {
-      const result = await query(
-        `INSERT INTO episodes (season_id, episode_number, title, video_url, duration_seconds, poster_data, poster_mime)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [seasonId, parseInt(episodeNumber), title || `Серия ${episodeNumber}`, videoUrl, durationSeconds, posterBuffer, posterMime]
-      );
-      res.json({ ok: true, episodeId: result.rows[0].id, videoUrl });
-    } catch (err: any) {
-      if (err.message?.includes('duplicate key')) return res.status(409).json({ error: 'Такая серия уже есть в этом сезоне' });
-      throw err;
-    }
-  } catch (err) { console.error('Upload direct episode error:', err); res.status(500).json({ error: 'Ошибка загрузки' }); }
-});

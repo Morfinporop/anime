@@ -13,7 +13,6 @@ export default function HomePage() {
   const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
   const [sort, setSort] = useState<Sort>('popular');
   const [genre, setGenre] = useState<string>('all');
-  const [showFilters, setShowFilters] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,12 +79,6 @@ export default function HomePage() {
           </div>
         ) : items.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-zinc-200 bg-white p-10 text-center">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-pink-100 text-pink-500">
-              <svg className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
             <h2 className="text-2xl font-bold text-zinc-900">Каталог пуст</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-zinc-500">
               Здесь пока нет аниме. Когда администратор загрузит — оно появится здесь.
@@ -95,28 +88,18 @@ export default function HomePage() {
           <>
             <div className="sticky top-14 z-20 mb-5 -mx-5 border-b border-zinc-200 bg-white/90 px-5 py-3 backdrop-blur-md sm:-mx-8 sm:px-8">
               <div className="flex flex-wrap items-center gap-2">
-                <button 
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                  </svg>
-                </button>
-                
-                {showFilters && (
-                  <div className="flex flex-wrap gap-2 animate-fade-in">
-                    <select value={genre} onChange={(e) => setGenre(e.target.value)} className="rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 outline-none hover:bg-zinc-50">
-                      {allGenres.map((g) => <option key={g} value={g}>{g === 'all' ? 'Все жанры' : g}</option>)}
-                    </select>
-                    <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 outline-none hover:bg-zinc-50">
-                      <option value="popular">По популярности</option>
-                      <option value="newest">Сначала новые</option>
-                      <option value="rating">По рейтингу</option>
-                      <option value="title">По алфавиту</option>
-                    </select>
-                  </div>
-                )}
+                <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <select value={genre} onChange={(e) => setGenre(e.target.value)} className="rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 outline-none hover:bg-zinc-50">
+                  {allGenres.map((g) => <option key={g} value={g}>{g === 'all' ? 'Все жанры' : g}</option>)}
+                </select>
+                <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="rounded-full border border-zinc-200 bg-white px-3.5 py-1.5 text-xs font-medium text-zinc-700 outline-none hover:bg-zinc-50">
+                  <option value="popular">По популярности</option>
+                  <option value="newest">Сначала новые</option>
+                  <option value="rating">По рейтингу</option>
+                  <option value="title">По алфавиту</option>
+                </select>
                 <div className="flex-1" />
                 <span className="text-xs text-zinc-500">{items.length} {pluralize(items.length, ['видео', 'видео', 'видео'])}</span>
               </div>

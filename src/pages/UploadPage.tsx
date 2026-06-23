@@ -9,7 +9,7 @@ import type { User, Anime } from '../types';
 const SUGGESTED_VOICEOVERS = ['Оригинал', 'Дубляж', 'Субтитры'];
 const SUBTITLES = ['Русские', 'English', '日本語'];
 
-type Step = 'anime' | 'season' | 'episode' | 'episodeDirect' | 'done';
+type Step = 'anime' | 'season' | 'episode' | 'done';
 
 export default function UploadPage() {
   const navigate = useNavigate();
@@ -168,10 +168,10 @@ export default function UploadPage() {
           <div key={s} className="flex items-center gap-2">
             <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
               step === s ? 'bg-zinc-900 text-white' :
-              (['anime', 'season', 'episode', 'episodeDirect'].indexOf(step) > i) ? 'bg-emerald-500 text-white' :
+              (['anime', 'season', 'episode'].indexOf(step) > i) ? 'bg-emerald-500 text-white' :
               'bg-zinc-200 text-zinc-500'
             }`}>
-              {(['anime', 'season', 'episode', 'episodeDirect'].indexOf(step) > i) ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
+              {(['anime', 'season', 'episode'].indexOf(step) > i) ? <CheckCircle2 className="h-4 w-4" /> : i + 1}
             </div>
             <span className="text-xs font-medium text-zinc-600">
               {s === 'anime' ? 'Аниме' : s === 'season' ? 'Сезон' : 'Серия'}
@@ -179,18 +179,6 @@ export default function UploadPage() {
             {i < 2 && <ChevronRight className="h-3 w-3 text-zinc-400" />}
           </div>
         ))}
-        <div className="flex items-center gap-2">
-          <div className="text-xs font-medium text-zinc-400">или</div>
-          <button
-            onClick={() => setStep('episodeDirect')}
-            className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
-              step === 'episodeDirect' ? 'bg-zinc-900 text-white' : 'bg-zinc-200 text-zinc-500'
-            }`}
-          >
-            🚀
-          </button>
-          <span className="text-xs font-medium text-zinc-600">Быстрая загрузка</span>
-        </div>
       </div>
 
       {uploading && (
