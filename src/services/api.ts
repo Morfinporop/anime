@@ -297,11 +297,25 @@ export async function voteAnime(animeId: number, vote: 1 | -1 | 0) {
     method: 'POST',
     body: JSON.stringify({ vote }),
   });
-  // Обновляем кэш
+  // Принудительно обновляем кэш + уведомляем UI
   const cached = statsCache.read(animeId);
   if (cached) {
-    statsCache.write(animeId, { ...cached, likesCount: result.likes, dislikesCount: result.dislikes, userVote: result.userVote as -1 | 0 | 1 });
+    statsCache.write(animeId, {
+      ...cached,
+      likesCount: result.likes,
+      dislikesCount: result.dislikes,
+      userVote: result.userVote as -1 | 0 | 1,
+    });
+  } else {
+    statsCache.write(animeId, {
+      likesCount: result.likes,
+      dislikesCount: result.dislikes,
+      userVote: result.userVote as -1 | 0 | 1,
+      rating: { average: 0, count: 0, userScore: null },
+    });
   }
+  // Уведомляем компоненты чтобы они перерендерились
+  window.dispatchEvent(new CustomEvent('corpmult_vote_change', { detail: { animeId } }));
   return result;
 }
 
@@ -464,6 +478,9 @@ export const admin = {
   },
   async setAdmin(userId: number, isAdmin: boolean) {
     await http(`/admin/users/${userId}/admin`, { method: 'POST', body: JSON.stringify({ isAdmin }) });
+  },
+  async banUser(userId: number) {
+    await http(`/admin/users/${userId}/ban`, { method: 'POST' });
   },
   async deleteComment(commentId: number) {
     await http(`/admin/comments/${commentId}`, { method: 'DELETE' });

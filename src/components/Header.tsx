@@ -94,11 +94,11 @@ export default function Header() {
           {/* Логотип и название */}
           <Link to="/" className="flex flex-shrink-0 items-center gap-2 transition-opacity hover:opacity-80">
             <img
-              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR9pLqCYWW8juTCyqoWx93mcC9CMFW5oQfygZ5IxsdmnPJb3O0VNVnxle0&s=10"
-              alt="CorpMult"
-              className="h-9 w-9 rounded-lg object-cover"
+              src="https://image.pngaaa.com/352/1697352-middle.png"
+              alt="AnimeWorld"
+              className="h-9 w-9 object-contain"
             />
-            <span className="hidden text-lg font-black tracking-tight text-zinc-900 sm:inline">CorpMult</span>
+            <span className="hidden text-lg font-black tracking-tight text-zinc-900 sm:inline">AnimeWorld</span>
           </Link>
 
           {/* Поиск — поле ввода (пошире) */}
@@ -110,6 +110,16 @@ export default function Header() {
             >
               <Search className="h-4 w-4" />
             </button>
+
+            <a
+              href="#"
+              className="hidden sm:flex items-center gap-2 ml-2 px-3 py-1.5 rounded-full bg-[#5865F2] text-white text-xs font-medium hover:bg-[#4752C4] transition-colors"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+              </svg>
+              <span>Делаешь аниме? подавай заявку в команду!</span>
+            </a>
 
             {searchOpen && (
               <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-2xl border border-zinc-200 bg-white p-3 shadow-2xl animate-fade-in">
@@ -190,7 +200,10 @@ export default function Header() {
 
             {currentUser ? (
               <div className="relative group ml-1">
-                <button className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white" style={{ backgroundColor: currentUser.avatarColor }}>
+                <button className="md:hidden flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white" style={{ backgroundColor: currentUser.avatarColor }} onClick={() => setMobileOpen(true)}>
+                  {currentUser.username[0].toUpperCase()}
+                </button>
+                <button className="hidden md:flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white" style={{ backgroundColor: currentUser.avatarColor }}>
                   {currentUser.username[0].toUpperCase()}
                 </button>
                 <div className="invisible absolute right-0 top-full z-50 mt-2 w-56 origin-top-right rounded-xl border border-zinc-200 bg-white p-2 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
@@ -216,9 +229,11 @@ export default function Header() {
               </button>
             )}
 
-            <button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100 md:hidden">
-              <Menu className="h-5 w-5" />
-            </button>
+            {!currentUser && (
+              <button onClick={() => setMobileOpen(true)} className="flex h-9 w-9 items-center justify-center rounded-full text-zinc-700 hover:bg-zinc-100 md:hidden">
+                <Menu className="h-5 w-5" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -250,6 +265,9 @@ export default function Header() {
                   <Shield className="h-5 w-5" /> Админ-панель
                 </Link>
               )}
+              <Link to="/settings" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-zinc-700 hover:bg-zinc-50">
+                <User className="h-5 w-5" /> Настройки
+              </Link>
               {currentUser ? (
                 <button onClick={() => { handleLogout(); setMobileOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-zinc-700 hover:bg-zinc-50">
                   <LogOut className="h-5 w-5" /> Выйти ({currentUser.username})
