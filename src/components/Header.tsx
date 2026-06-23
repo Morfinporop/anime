@@ -112,7 +112,9 @@ export default function Header() {
             </button>
 
             <a
-              href="#"
+              href="https://discord.gg/t7zp4QHgg"
+              target="_blank"
+              rel="noopener noreferrer"
               className="hidden sm:flex items-center gap-2 ml-2 px-3 py-1.5 rounded-full bg-[#5865F2] text-white text-xs font-medium hover:bg-[#4752C4] transition-colors"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
