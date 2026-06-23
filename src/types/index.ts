@@ -41,6 +41,7 @@ export interface Anime {
   dislikesCount: number;
   rating: number;
   ratingsCount: number;
+  views: number;
   totalEpisodes: number;
   totalSeasons: number;
   addedAt: string;

@@ -10,10 +10,6 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_color VARCHAR(16) NOT NULL,
   is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   can_upload BOOLEAN NOT NULL DEFAULT FALSE,
-  is_banned BOOLEAN NOT NULL DEFAULT FALSE,
-  banned_at TIMESTAMP,
-  ban_reason TEXT,
-  banned_ip VARCHAR(45),
   created_at TIMESTAMP DEFAULT NOW()
 );
 

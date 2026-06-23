@@ -479,9 +479,6 @@ export const admin = {
   async setAdmin(userId: number, isAdmin: boolean) {
     await http(`/admin/users/${userId}/admin`, { method: 'POST', body: JSON.stringify({ isAdmin }) });
   },
-  async banUser(userId: number) {
-    await http(`/admin/users/${userId}/ban`, { method: 'POST' });
-  },
   async deleteComment(commentId: number) {
     await http(`/admin/comments/${commentId}`, { method: 'DELETE' });
   },

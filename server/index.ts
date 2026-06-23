@@ -123,10 +123,9 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Заполните все поля' });
-    const result = await query('SELECT id, username, password_hash, avatar_color, is_admin, can_upload, is_banned FROM users WHERE username = $1', [username]);
+    const result = await query('SELECT id, username, password_hash, avatar_color, is_admin, can_upload FROM users WHERE username = $1', [username]);
     if (result.rows.length === 0) return res.status(401).json({ error: 'Неверный ник или пароль' });
     const user = result.rows[0];
-    if (user.is_banned) return res.status(403).json({ error: 'Ваш аккаунт заблокирован' });
     const valid = await verifyPassword(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Неверный ник или пароль' });
     const token = signToken({ id: user.id, username: user.username, avatarColor: user.avatar_color, isAdmin: user.is_admin, canUpload: user.can_upload });
@@ -163,6 +162,7 @@ app.get('/api/anime', async (req, res) => {
         a.created_at, a.updated_at, a.genres,
         COALESCE(r.avg_rating, 0) AS avg_rating,
         COALESCE(r.ratings_count, 0) AS ratings_count,
+        COALESCE(v.total_views, 0) AS views,
         COALESCE(s.total_episodes, 0) AS total_episodes,
         COALESCE(se.total_seasons, 0) AS total_seasons
       FROM anime a
@@ -171,20 +171,30 @@ app.get('/api/anime', async (req, res) => {
         FROM ratings GROUP BY anime_id
       ) r ON r.anime_id = a.id
       LEFT JOIN (
-        SELECT s2.anime_id, COUNT(e.id) AS total_episodes
-        FROM seasons s2 LEFT JOIN episodes e ON e.season_id = s2.id
-        GROUP BY s2.anime_id
+        SELECT anime_id, COUNT(*) AS total_episodes
+        FROM episodes
+        GROUP BY anime_id
       ) s ON s.anime_id = a.id
       LEFT JOIN (
         SELECT anime_id, COUNT(*) AS total_seasons FROM seasons GROUP BY anime_id
       ) se ON se.anime_id = a.id
+      LEFT JOIN (
+        SELECT e.season_id, COUNT(v.id) AS total_views
+        FROM episodes e LEFT JOIN views v ON v.episode_id = e.id GROUP BY e.season_id
+      ) ev ON ev.season_id IN (SELECT id FROM seasons WHERE anime_id = a.id)
+      LEFT JOIN (
+        SELECT season_id, SUM(total_views) AS total_views FROM (
+          SELECT e.season_id, COUNT(v.id) AS total_views
+          FROM episodes e LEFT JOIN views v ON v.episode_id = e.id GROUP BY e.season_id, e.id
+        ) s GROUP BY season_id
+      ) v ON v.season_id IN (SELECT id FROM seasons WHERE anime_id = a.id)
     `;
     const params: unknown[] = [];
     if (genre && genre !== 'all') {
       sql += ` WHERE $1 = ANY(a.genres) `;
       params.push(genre);
     }
-    sql += ` GROUP BY a.id, r.avg_rating, r.ratings_count, s.total_episodes, se.total_seasons ORDER BY ${orderBy} LIMIT 500`;
+    sql += ` GROUP BY a.id, r.avg_rating, r.ratings_count, v.total_views, s.total_episodes, se.total_seasons ORDER BY ${orderBy} LIMIT 500`;
     const result = await query(sql, params);
     const items = result.rows.map((row) => ({
       id: row.id,
@@ -197,6 +207,7 @@ app.get('/api/anime', async (req, res) => {
       dislikesCount: parseInt(row.dislikes_count) || 0,
       rating: parseFloat(row.avg_rating) || 0,
       ratingsCount: parseInt(row.ratings_count) || 0,
+      views: parseInt(row.views) || 0,
       totalEpisodes: parseInt(row.total_episodes) || 0,
       totalSeasons: parseInt(row.total_seasons) || 0,
       genres: row.genres || [],
@@ -854,16 +865,6 @@ app.post('/api/admin/users/:id/admin', requireAdmin, async (req: any, res) => {
     const userId = parseInt(req.params.id);
     const { isAdmin } = req.body;
     await query('UPDATE users SET is_admin = $1 WHERE id = $2', [!!isAdmin, userId]);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
-});
-
-// Бан пользователя
-app.post('/api/admin/users/:id/ban', requireAdmin, async (req: any, res) => {
-  try {
-    const userId = parseInt(req.params.id);
-    const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
-    await query('UPDATE users SET is_banned = TRUE, banned_at = NOW(), ban_reason = $1, banned_ip = $2 WHERE id = $3', ['Забанен администратором', clientIp, userId]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
 });
