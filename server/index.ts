@@ -185,23 +185,13 @@ app.get('/api/anime', async (req, res) => {
       LEFT JOIN (
         SELECT anime_id, COUNT(*) AS total_seasons FROM seasons GROUP BY anime_id
       ) se ON se.anime_id = a.id
-      LEFT JOIN (
-        SELECT e.season_id, COUNT(v.id) AS total_views
-        FROM episodes e LEFT JOIN views v ON v.episode_id = e.id GROUP BY e.season_id
-      ) ev ON ev.season_id IN (SELECT id FROM seasons WHERE anime_id = a.id)
-      LEFT JOIN (
-        SELECT season_id, SUM(total_views) AS total_views FROM (
-          SELECT e.season_id, COUNT(v.id) AS total_views
-          FROM episodes e LEFT JOIN views v ON v.episode_id = e.id GROUP BY e.season_id, e.id
-        ) s GROUP BY season_id
-      ) v ON v.season_id IN (SELECT id FROM seasons WHERE anime_id = a.id)
     `;
     const params: unknown[] = [];
     if (genre && genre !== 'all') {
       sql += ` WHERE $1 = ANY(a.genres) `;
       params.push(genre);
     }
-    sql += ` GROUP BY a.id, r.avg_rating, r.ratings_count, v.total_views, s.total_episodes, se.total_seasons ORDER BY ${orderBy} LIMIT 500`;
+    sql += ` GROUP BY a.id, r.avg_rating, r.ratings_count, s.total_episodes, se.total_seasons ORDER BY ${orderBy} LIMIT 500`;
     const result = await query(sql, params);
     const items = result.rows.map((row) => ({
       id: row.id,
@@ -214,7 +204,7 @@ app.get('/api/anime', async (req, res) => {
       dislikesCount: parseInt(row.dislikes_count) || 0,
       rating: parseFloat(row.avg_rating) || 0,
       ratingsCount: parseInt(row.ratings_count) || 0,
-      views: parseInt(row.views) || 0,
+      views: 0,
       totalEpisodes: parseInt(row.total_episodes) || 0,
       totalSeasons: parseInt(row.total_seasons) || 0,
       genres: row.genres || [],
@@ -660,7 +650,7 @@ app.post('/api/episodes/:id/view', requireAuth, async (req: any, res) => {
 app.get('/api/favorites', requireAuth, async (req: any, res) => {
   try {
     const result = await query(
-      `SELECT a.id, a.title, a.poster_data, a.year, a.likes_count, a.rating
+      `SELECT a.id, a.title, a.poster_data, a.year, a.likes_count
        FROM favorites f JOIN anime a ON a.id = f.anime_id
        WHERE f.user_id = $1 ORDER BY f.added_at DESC`,
       [req.user.id]
@@ -672,7 +662,7 @@ app.get('/api/favorites', requireAuth, async (req: any, res) => {
         poster: `/api/posters/anime/${a.id}`,
         year: a.year,
         likesCount: parseInt(a.likes_count) || 0,
-        rating: parseFloat(a.rating) || 0,
+        rating: parseFloat(a.likes_count) || 0,
       })),
     });
   } catch (err) { res.status(500).json({ error: 'Ошибка сервера' }); }
@@ -906,3 +896,100 @@ async function start() {
 }
 
 start();
+
+
+// Загрузка серии напрямую без сезона
+app.post('/api/anime/:animeId/episodes', requireUploadPermission, upload.fields([
+  { name: 'video', maxCount: 1 },
+  { name: 'poster', maxCount: 1 },
+]), async (req: any, res) => {
+  try {
+    const { animeId } = req.params;
+    const { episodeNumber = '1', title = '', seasonNumber = '1' } = req.body;
+    const videoFile = req.files?.video?.[0];
+    const posterFile = req.files?.poster?.[0];
+    if (!videoFile) return res.status(400).json({ error: 'Видеофайл не загружен' });
+
+    // Создаем сезон если нет
+    let seasonId;
+    const seasonCheck = await query(
+      'SELECT id FROM seasons WHERE anime_id = $1 AND season_number = $2',
+      [animeId, parseInt(seasonNumber)]
+    );
+    
+    if (seasonCheck.rows.length === 0) {
+      const seasonResult = await query(
+        `INSERT INTO seasons (anime_id, season_number, description) 
+         VALUES ($1, $2, $3) RETURNING id`,
+        [animeId, parseInt(seasonNumber), `Сезон ${seasonNumber}`]
+      );
+      seasonId = seasonResult.rows[0].id;
+    } else {
+      seasonId = seasonCheck.rows[0].id;
+    }
+
+    // Загружаем серию
+    const ext = videoFile.mimetype.includes('webm') ? 'webm' : 'mp4';
+    const filename = `${seasonId}_${Date.now()}_${episodeNumber}.${ext}`;
+    const filepath = join(UPLOAD_DIR, filename);
+    writeFileSync(filepath, videoFile.buffer);
+
+    const sizeMB = videoFile.size / 1024 / 1024;
+    console.log(`[upload] Серия ${episodeNumber}: ${sizeMB.toFixed(1)} МБ`);
+
+    // Сжатие
+    if (sizeMB > 50) {
+      try {
+        const crf = sizeMB > 500 ? '35' : sizeMB > 200 ? '32' : '28';
+        const videoBitrate = sizeMB > 500 ? '800k' : sizeMB > 200 ? '1200k' : '1800k';
+        const maxHeight = sizeMB > 500 ? '480' : '720';
+        await new Promise<void>((resolve) => {
+          const cmd = `ffmpeg -i "${filepath}" -c:v libx264 -preset fast -crf ${crf} -vf "scale='min(1280,iw)':-2,scale='if(gt(ih,${maxHeight}),${maxHeight},ih)':-2" -b:v ${videoBitrate} -c:a aac -b:a 96k -movflags +faststart -pix_fmt yuv420p -threads 0 -y "${filepath}.tmp.mp4"`;
+          exec(cmd, { timeout: 600000 }, (err) => {
+            if (err) { console.error(`[compress] ${err.message}`); resolve(); return; }
+            try {
+              unlinkSync(filepath);
+              renameSync(`${filepath}.tmp.mp4`, filepath);
+              const newSize = statSync(filepath).size / 1024 / 1024;
+              console.log(`[compress] ${sizeMB.toFixed(1)} МБ → ${newSize.toFixed(1)} МБ (${((1 - newSize / sizeMB) * 100).toFixed(0)}%)`);
+            } catch (e) { console.error(`[compress] ${e}`); }
+            resolve();
+          });
+        });
+      } catch (e) { console.error(`[compress] ${e}`); }
+    }
+
+    // Длительность
+    let durationSeconds = 0;
+    try {
+      await new Promise<void>((resolve) => {
+        exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filepath}"`, (err, stdout) => {
+          if (!err) durationSeconds = Math.round(parseFloat(stdout.trim()) || 0);
+          resolve();
+        });
+      });
+    } catch {}
+
+    // Постер серии
+    let posterBuffer: Buffer | null = null;
+    let posterMime: string | null = null;
+    if (posterFile) {
+      posterBuffer = posterFile.buffer;
+      posterMime = posterFile.mimetype;
+    }
+
+    const videoUrl = `/uploads/${filename}`;
+
+    try {
+      const result = await query(
+        `INSERT INTO episodes (season_id, episode_number, title, video_url, duration_seconds, poster_data, poster_mime)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [seasonId, parseInt(episodeNumber), title || `Серия ${episodeNumber}`, videoUrl, durationSeconds, posterBuffer, posterMime]
+      );
+      res.json({ ok: true, episodeId: result.rows[0].id, videoUrl });
+    } catch (err: any) {
+      if (err.message?.includes('duplicate key')) return res.status(409).json({ error: 'Такая серия уже есть в этом сезоне' });
+      throw err;
+    }
+  } catch (err) { console.error('Upload direct episode error:', err); res.status(500).json({ error: 'Ошибка загрузки' }); }
+});

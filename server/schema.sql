@@ -207,3 +207,6 @@ CREATE TABLE IF NOT EXISTS bans (
 );
 
 CREATE INDEX IF NOT EXISTS idx_bans_user ON bans(user_id);
+
+-- 17. Исправление багов схемы - добавление отсутствующих полей
+ALTER TABLE anime ADD COLUMN IF NOT EXISTS rating NUMERIC(3,1) DEFAULT 0;

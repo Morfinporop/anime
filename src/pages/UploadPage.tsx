@@ -9,7 +9,7 @@ import type { User, Anime } from '../types';
 const SUGGESTED_VOICEOVERS = ['Оригинал', 'Дубляж', 'Субтитры'];
 const SUBTITLES = ['Русские', 'English', '日本語'];
 
-type Step = 'anime' | 'season' | 'episode' | 'done';
+type Step = 'anime' | 'season' | 'episode' | 'episodeDirect' | 'done';
 
 export default function UploadPage() {
   const navigate = useNavigate();
