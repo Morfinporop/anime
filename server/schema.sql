@@ -58,22 +58,11 @@ CREATE TABLE IF NOT EXISTS episodes (
   poster_mime VARCHAR(50),
   voiceovers TEXT[] NOT NULL DEFAULT '{}',
   subtitles TEXT[] NOT NULL DEFAULT '{}',
-  quality VARCHAR(16) NOT NULL DEFAULT '720p',
   duration_seconds INT NOT NULL DEFAULT 0,
   views_count INT NOT NULL DEFAULT 0,
-  created_at TIMESTAMP DEFAULT NOW()
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(season_id, episode_number)
 );
-
--- Уникальность: если сезон указан — уникальный номер серии в сезоне
--- Если сезон не указан — уникальный номер серии в аниме (через LEFT JOIN)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'episodes_season_episode_unique') THEN
-    ALTER TABLE episodes ADD CONSTRAINT episodes_season_episode_unique
-      UNIQUE(season_id, episode_number);
-  END IF;
-EXCEPTION WHEN OTHERS THEN NULL;
-END $$;
 
 CREATE INDEX IF NOT EXISTS idx_episodes_season ON episodes(season_id, episode_number);
 

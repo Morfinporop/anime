@@ -1,31 +1,6 @@
-// Типы данных для AnimeWorld
+// Типы данных для CorpMult
 
 export type Quality = '360p' | '480p' | '720p' | '1080p' | '1440p' | '4K' | 'Auto';
-
-export interface Episode {
-  id: number;
-  seasonId: number | null; // null если загружено без сезона
-  animeId: number;
-  episodeNumber: number;
-  title: string;
-  videoUrl: string;
-  durationSeconds: number;
-  views: number;
-  poster: string;
-  voiceovers: string[];
-  subtitles: string[];
-  quality: Quality;
-  createdAt: string;
-}
-
-export interface Season {
-  id: number;
-  animeId: number;
-  seasonNumber: number;
-  poster: string;
-  description: string;
-  episodesCount: number;
-}
 
 export interface Anime {
   id: number;
@@ -35,8 +10,6 @@ export interface Anime {
   year: number;
   ageRating: string;
   genres: string[];
-  voiceovers: string[];
-  subtitles: string[];
   likesCount: number;
   dislikesCount: number;
   rating: number;
@@ -46,6 +19,29 @@ export interface Anime {
   totalSeasons: number;
   addedAt: string;
   seasons?: Season[];
+}
+
+export interface Season {
+  id: number;
+  animeId: number;
+  seasonNumber: number;
+  poster: string;
+  description: string;
+  episodesCount: number;
+  createdAt: string;
+  episodes?: Episode[];
+}
+
+export interface Episode {
+  id: number;
+  seasonId: number;
+  episodeNumber: number;
+  title: string;
+  videoUrl: string;
+  durationSeconds: number;
+  views: number;
+  poster: string;
+  createdAt: string;
 }
 
 export interface Comment {
@@ -69,3 +65,6 @@ export interface User {
   isAdmin: boolean;
   canUpload: boolean;
 }
+
+// Алиас для обратной совместимости
+export type Video = Anime;

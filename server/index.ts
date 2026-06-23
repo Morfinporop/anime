@@ -171,9 +171,8 @@ app.get('/api/anime', async (req, res) => {
         FROM ratings GROUP BY anime_id
       ) r ON r.anime_id = a.id
       LEFT JOIN (
-        SELECT anime_id, COUNT(*) AS total_episodes
-        FROM episodes
-        GROUP BY anime_id
+        SELECT s.anime_id, COUNT(e.id) AS total_episodes
+        FROM seasons s LEFT JOIN episodes e ON e.season_id = s.id GROUP BY s.anime_id
       ) s ON s.anime_id = a.id
       LEFT JOIN (
         SELECT anime_id, COUNT(*) AS total_seasons FROM seasons GROUP BY anime_id
@@ -230,7 +229,7 @@ app.get('/api/anime/:id', async (req, res) => {
         FROM ratings GROUP BY anime_id
       ) r ON r.anime_id = a.id
       WHERE a.id = $1
-    `, [parseInt(id)]);
+    `, [id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Не найдено' });
     const row = result.rows[0];
 
@@ -320,120 +319,7 @@ app.post('/api/anime/:animeId/seasons', requireUploadPermission, upload.fields([
   }
 });
 
-// Шаг 3: загрузить серию — МОЖНО БЕЗ СЕЗОНА (напрямую к аниме)
-// Для этого передаётся animeId вместо seasonId
-app.post('/api/upload-episode', requireUploadPermission, upload.fields([
-  { name: 'video', maxCount: 1 },
-  { name: 'poster', maxCount: 1 },
-]), async (req: any, res) => {
-  try {
-    const { animeId, seasonId, episodeNumber = '1', title = '' } = req.body;
-    const videoFile = req.files?.video?.[0];
-    const posterFile = req.files?.poster?.[0];
-    if (!videoFile) return res.status(400).json({ error: 'Видеофайл не загружен' });
-    if (!animeId) return res.status(400).json({ error: 'Не указано animeId' });
-
-    const animeIdNum = parseInt(animeId);
-    if (isNaN(animeIdNum)) return res.status(400).json({ error: 'Неверный animeId' });
-
-    let seasonIdNum: number | null = null;
-    if (seasonId && seasonId !== '' && seasonId !== 'null') {
-      seasonIdNum = parseInt(seasonId);
-      if (isNaN(seasonIdNum)) return res.status(400).json({ error: 'Неверный seasonId' });
-    }
-
-    const epNum = parseInt(episodeNumber);
-    if (isNaN(epNum) || epNum < 1) return res.status(400).json({ error: 'Неверный номер серии' });
-
-    // Генерируем уникальное имя файла
-    const ext = videoFile.mimetype.includes('webm') ? 'webm' : 'mp4';
-    const filename = `ep_${animeIdNum}_${Date.now()}_${epNum}.${ext}`;
-    const filepath = join(UPLOAD_DIR, filename);
-    writeFileSync(filepath, videoFile.buffer);
-
-    const sizeMB = videoFile.size / 1024 / 1024;
-    console.log(`[upload] Серия ${epNum} для anime ${animeIdNum}: ${sizeMB.toFixed(1)} МБ`);
-
-    // Сжатие видео через FFmpeg
-    if (sizeMB > 50) {
-      try {
-        const crf = sizeMB > 500 ? '35' : sizeMB > 200 ? '32' : '28';
-        const videoBitrate = sizeMB > 500 ? '800k' : sizeMB > 200 ? '1200k' : '1800k';
-        const maxHeight = sizeMB > 500 ? '480' : '720';
-        await new Promise<void>((resolve) => {
-          const cmd = `ffmpeg -i "${filepath}" -c:v libx264 -preset fast -crf ${crf} -vf "scale='min(1280,iw)':-2,scale='if(gt(ih,${maxHeight}),${maxHeight},ih)':-2" -b:v ${videoBitrate} -c:a aac -b:a 96k -movflags +faststart -pix_fmt yuv420p -threads 0 -y "${filepath}.tmp.mp4"`;
-          exec(cmd, { timeout: 600000 }, (err) => {
-            if (err) { console.error(`[compress] ${err.message}`); resolve(); return; }
-            try {
-              unlinkSync(filepath);
-              renameSync(`${filepath}.tmp.mp4`, filepath);
-              const newSize = statSync(filepath).size / 1024 / 1024;
-              console.log(`[compress] ${sizeMB.toFixed(1)} МБ → ${newSize.toFixed(1)} МБ`);
-            } catch (e) { console.error(`[compress] ${e}`); }
-            resolve();
-          });
-        });
-      } catch (e) { console.error(`[compress] ${e}`); }
-    }
-
-    // Длительность через ffprobe
-    let durationSeconds = 0;
-    try {
-      await new Promise<void>((resolve) => {
-        exec(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filepath}"`, (err, stdout) => {
-          if (!err) durationSeconds = Math.round(parseFloat(stdout.trim()) || 0);
-          resolve();
-        });
-      });
-    } catch {}
-
-    // Определяем качество из размера файла
-    let quality: string = '720p';
-    if (sizeMB > 700) quality = '1080p';
-    else if (sizeMB > 300) quality = '720p';
-    else if (sizeMB > 100) quality = '480p';
-    else quality = '360p';
-
-    // Постер серии
-    let posterBuffer: Buffer | null = null;
-    let posterMime: string | null = null;
-    if (posterFile) {
-      posterBuffer = posterFile.buffer;
-      posterMime = posterFile.mimetype;
-    }
-
-    const videoUrl = `/uploads/${filename}`;
-
-    let result;
-    try {
-      result = await query(
-        `INSERT INTO episodes (season_id, episode_number, title, video_url, duration_seconds, poster_data, poster_mime, voiceovers, subtitles, quality)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-        [seasonIdNum, epNum, title || `Серия ${epNum}`, videoUrl, durationSeconds, posterBuffer, posterMime, [], [], quality]
-      );
-    } catch (err: any) {
-      if (err.message?.includes('duplicate key')) return res.status(409).json({ error: 'Такая серия уже есть' });
-      throw err;
-    }
-
-    const episodeId = result.rows[0].id;
-
-    // Обновляем счётчик эпизодов
-    if (seasonIdNum) {
-      await query(
-        `UPDATE seasons SET episodes_count = (SELECT COUNT(*) FROM episodes WHERE season_id = $1) WHERE id = $1`,
-        [seasonIdNum]
-      );
-    }
-
-    res.json({ ok: true, episodeId, videoUrl, quality });
-  } catch (err) {
-    console.error('[upload episode error]', err);
-    res.status(500).json({ error: 'Ошибка загрузки: ' + (err instanceof Error ? err.message : String(err)) });
-  }
-});
-
-// Старый endpoint — оставлен для совместимости (через season)
+// Шаг 3: загрузить серию (видео + обложка серии)
 app.post('/api/seasons/:seasonId/episodes', requireUploadPermission, upload.fields([
   { name: 'video', maxCount: 1 },
   { name: 'poster', maxCount: 1 },
@@ -955,8 +841,10 @@ async function start() {
     const server = app.listen(PORT, '0.0.0.0', () => {
       console.log(`[server] ✓ CorpMult API запущен на порту ${PORT}`);
       console.log(`[server] Режим: ${NODE_ENV}`);
+      console.log(`[server] Создайте первого админа: curl -X POST $API/api/setup-admin -d '{"username":"Morfin","password":"..."}'`);
     });
 
+    // Обработка ошибок сервера
     server.on('error', (err: any) => {
       console.error('[server.error]', err);
       if (err.code === 'EADDRINUSE') {
@@ -965,37 +853,12 @@ async function start() {
       }
     });
 
-    // Потом инициализируем БД
+    // Потом инициализируем БД (если упадёт — сервер всё равно работает)
     try {
       await initDatabase();
-      console.log('[init] ✓ База данных готова');
-
-      // Автоматически делаем первого пользователя (id=1) админом с правами
-      try {
-        const result = await query(
-          `UPDATE users SET is_admin = TRUE, can_upload = TRUE WHERE id = 1 RETURNING id, username`
-        );
-        if (result.rows.length > 0) {
-          console.log(`[init] ✓ Пользователь #1 (${result.rows[0].username}) автоматически стал админом`);
-        } else {
-          // Нет пользователя — создаём Morfin с дефолтным паролем
-          const hash = await hashPassword(process.env.ADMIN_PASSWORD || 'morfin2024');
-          const insertResult = await query(
-            `INSERT INTO users (username, password_hash, avatar_color, is_admin, can_upload)
-             VALUES ($1, $2, $3, TRUE, TRUE)
-             ON CONFLICT (username) DO UPDATE SET is_admin = TRUE, can_upload = TRUE, password_hash = $2
-             RETURNING id, username`,
-            ['Morfin', hash, '#ff85b8']
-          );
-          if (insertResult.rows.length > 0) {
-            console.log(`[init] ✓ Создан админ Morfin (id=${insertResult.rows[0].id}, пароль: ${process.env.ADMIN_PASSWORD || 'morfin2024'})`);
-          }
-        }
-      } catch (adminErr: any) {
-        console.warn('[init.warn] Не удалось создать/назначить админа:', adminErr.message);
-      }
-    } catch (dbErr: any) {
-      console.error('[init.error] Не удалось инициализировать БД:', dbErr.message);
+      console.log('[init] База данных готова');
+    } catch (dbErr) {
+      console.error('[init.error] Не удалось инициализировать БД:', dbErr);
       console.error('[init.error] Сервер продолжает работать но БД может быть недоступна');
     }
   } catch (err) {

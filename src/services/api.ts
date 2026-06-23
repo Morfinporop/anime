@@ -10,7 +10,7 @@ import {
   statsCache, userCache, favoritesCache,
 } from './cache';
 
-// Старый логотип больше не используется — оставлено для справки
+const LOGO_URL = 'https://cdn.pixabay.com/photo/2017/03/16/21/18/logo-2150297_640.png';
 const API_BASE = '/api';
 
 // === HTTP ===
@@ -297,25 +297,11 @@ export async function voteAnime(animeId: number, vote: 1 | -1 | 0) {
     method: 'POST',
     body: JSON.stringify({ vote }),
   });
-  // Принудительно обновляем кэш + уведомляем UI
+  // Обновляем кэш
   const cached = statsCache.read(animeId);
   if (cached) {
-    statsCache.write(animeId, {
-      ...cached,
-      likesCount: result.likes,
-      dislikesCount: result.dislikes,
-      userVote: result.userVote as -1 | 0 | 1,
-    });
-  } else {
-    statsCache.write(animeId, {
-      likesCount: result.likes,
-      dislikesCount: result.dislikes,
-      userVote: result.userVote as -1 | 0 | 1,
-      rating: { average: 0, count: 0, userScore: null },
-    });
+    statsCache.write(animeId, { ...cached, likesCount: result.likes, dislikesCount: result.dislikes, userVote: result.userVote as -1 | 0 | 1 });
   }
-  // Уведомляем компоненты чтобы они перерендерились
-  window.dispatchEvent(new CustomEvent('corpmult_vote_change', { detail: { animeId } }));
   return result;
 }
 
@@ -492,4 +478,5 @@ export async function changePassword(oldPassword: string, newPassword: string) {
   return http('/auth/change-password', { method: 'POST', body: JSON.stringify({ oldPassword, newPassword }) });
 }
 
+export { LOGO_URL };
 export type Video = Anime;
