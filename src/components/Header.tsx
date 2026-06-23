@@ -1,23 +1,23 @@
 import { Link } from 'react-router-dom';
 import { Heart, Upload, Menu, X, Search, LogIn, LogOut, User, Shield } from 'lucide-react';
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
-import { searchAnime, users } from '../services/api';
+import { searchAnime, users, LOGO_URL } from '../services/api';
 import type { Anime, User as UserType } from '../types';
 
 function useCurrentUser(): UserType | null {
   const subscribe = (cb: () => void) => {
-    window.addEventListener('corpmult_user_change', cb);
-    return () => window.removeEventListener('corpmult_user_change', cb);
+    window.addEventListener('animeworld_user_change', cb);
+    return () => window.removeEventListener('animeworld_user_change', cb);
   };
-  const getSnapshot = () => localStorage.getItem('corpmult_user_cache') || 'null';
+  const getSnapshot = () => localStorage.getItem('animeworld_user_cache') || 'null';
   const getServerSnapshot = () => 'null';
 
   useEffect(() => {
     let cancelled = false;
     users.getCurrent().then((u) => {
       if (cancelled) return;
-      localStorage.setItem('corpmult_user_cache', u ? JSON.stringify(u) : 'null');
-      window.dispatchEvent(new Event('corpmult_user_change'));
+      localStorage.setItem('animeworld_user_cache', u ? JSON.stringify(u) : 'null');
+      window.dispatchEvent(new Event('animeworld_user_change'));
     });
     return () => { cancelled = true; };
   }, []);
@@ -25,8 +25,8 @@ function useCurrentUser(): UserType | null {
   useEffect(() => {
     const interval = setInterval(() => {
       users.getCurrent().then((u) => {
-        localStorage.setItem('corpmult_user_cache', u ? JSON.stringify(u) : 'null');
-        window.dispatchEvent(new Event('corpmult_user_change'));
+        localStorage.setItem('animeworld_user_cache', u ? JSON.stringify(u) : 'null');
+        window.dispatchEvent(new Event('animeworld_user_change'));
       });
     }, 30000);
     return () => clearInterval(interval);
@@ -91,21 +91,20 @@ export default function Header() {
     <>
       <header className="glass-header sticky top-0 z-40 border-b border-[var(--border)]">
         <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-3 px-4 sm:gap-4 sm:px-6">
-          {/* Логотип и название */}
+          {/* Логотип */}
           <Link to="/" className="flex flex-shrink-0 items-center gap-2 transition-opacity hover:opacity-80">
             <img
-              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR9pLqCYWW8juTCyqoWx93mcC9CMFW5oQfygZ5IxsdmnPJb3O0VNVnxle0&s=10"
-              alt="CorpMult"
-              className="h-9 w-9 rounded-lg object-cover"
+              src={LOGO_URL}
+              alt="AnimeWorld"
+              className="h-9 w-9 object-contain"
             />
-            <span className="hidden text-lg font-black tracking-tight text-zinc-900 sm:inline">CorpMult</span>
           </Link>
 
-          {/* Поиск — поле ввода (пошире) */}
-          <div ref={searchContainerRef} className="relative flex-1 min-w-0">
+          {/* Поиск — круглая кнопка */}
+          <div ref={searchContainerRef} className="relative flex items-center">
             <button
               onClick={() => setSearchOpen(!searchOpen)}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-zinc-100 text-zinc-600 transition-all hover:bg-zinc-200 hover:text-zinc-900"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-zinc-50 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900"
               aria-label="Поиск"
             >
               <Search className="h-4 w-4" />
@@ -171,6 +170,20 @@ export default function Header() {
 
           {/* Иконки действий */}
           <div className="flex flex-shrink-0 items-center gap-1">
+            {/* Discord - ссылка на подачу заявки в команду */}
+            <a
+              href="https://discord.gg/your-invite"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden h-9 items-center gap-2 rounded-full px-3 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 lg:flex"
+              title="Подать заявку в команду"
+            >
+              <svg className="h-[18px] w-[18px] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
+              </svg>
+              <span className="whitespace-nowrap">Делаешь аниме? Подавай заявку!</span>
+            </a>
+
             <Link to="/favorites" className="hidden h-9 w-9 items-center justify-center rounded-full text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-zinc-900 sm:flex" title="Избранное">
               <Heart className="h-[18px] w-[18px]" />
             </Link>
@@ -188,12 +201,13 @@ export default function Header() {
               </Link>
             )}
 
+            {/* Для телефонов - меню открывается по клику на аватар */}
             {currentUser ? (
-              <div className="relative group ml-1">
-                <button className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white" style={{ backgroundColor: currentUser.avatarColor }}>
+              <div className="relative group">
+                <button className="flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white shadow-md ring-2 ring-white md:ring-0" style={{ backgroundColor: currentUser.avatarColor }}>
                   {currentUser.username[0].toUpperCase()}
                 </button>
-                <div className="invisible absolute right-0 top-full z-50 mt-2 w-56 origin-top-right rounded-xl border border-zinc-200 bg-white p-2 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100">
+                <div className="invisible absolute right-0 top-full z-50 mt-2 w-56 origin-top-right rounded-xl border border-zinc-200 bg-white p-2 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100 md:hidden">
                   <div className="border-b border-zinc-100 px-3 py-2">
                     <div className="text-sm font-semibold text-zinc-900">{currentUser.username}</div>
                     <div className="text-[11px] text-zinc-500">ID: {currentUser.id}</div>
