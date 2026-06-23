@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize, Settings,
-  SkipBack, SkipForward, Subtitles, Check, Loader2,
+  SkipBack, SkipForward, Check, Loader2,
 } from 'lucide-react';
 import type { Quality } from '../types';
 
@@ -15,6 +15,7 @@ interface Props {
   initialVoiceover?: string;
   initialQuality?: Quality;
   voiceovers?: string[];
+  qualitySources?: Record<Quality, string>;
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -38,6 +39,7 @@ export default function VideoPlayer({
   initialVoiceover,
   initialQuality = 'Auto',
   voiceovers = ['Оригинал'],
+  qualitySources = {},
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,26 +50,16 @@ export default function VideoPlayer({
   const viewRecordedRef = useRef(false);
   const maxWatchedRef = useRef(0);
   const autoplayRef = useRef(true);
-  // Метка для подавления лишних предупреждений (используется в onLoadedMetadata)
-  void autoplayRef;
 
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
-  // === СУБТИТРЫ В РЕАЛЬНОМ ВРЕМЕНИ ===
-  // Используем Web Speech API для распознавания речи из аудио видео
-  const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
-  const [subtitleLang, setSubtitleLang] = useState<'ru-RU' | 'en-US' | 'ja-JP'>('ru-RU');
-  const [currentSubtitle, setCurrentSubtitle] = useState<string>('');
-  const recognitionRef = useRef<any>(null);
-  const lastTranscriptRef = useRef<{ text: string; time: number }>({ text: '', time: 0 });
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [buffered, setBuffered] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [speed, setSpeed] = useState(1);
-  // Загружаем сохранённое качество из LocalStorage
   const [quality, setQuality] = useState<Quality>(() => {
     try {
       const saved = localStorage.getItem('corpmult_quality');
@@ -75,15 +67,10 @@ export default function VideoPlayer({
     } catch {}
     return initialQuality;
   });
-
-  // Сохраняем выбор качества
-  useEffect(() => {
-    try { localStorage.setItem('corpmult_quality', quality); } catch {}
-  }, [quality]);
+  const [currentVideoSrc, setCurrentVideoSrc] = useState(videoSrc);
   const [voiceover, setVoiceover] = useState<string>(initialVoiceover || voiceovers[0] || 'Оригинал');
-  const [subtitles, setSubtitles] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'speed' | 'quality' | 'voiceover' | 'subtitles'>('speed');
+  const [settingsTab, setSettingsTab] = useState<'speed' | 'quality' | 'voiceover'>('speed');
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showResumePrompt, setShowResumePrompt] = useState(initialPosition > 30);
@@ -91,12 +78,15 @@ export default function VideoPlayer({
   const [showThumb, setShowThumb] = useState(false);
 
   useEffect(() => {
+    try { localStorage.setItem('corpmult_quality', quality); } catch {}
+  }, [quality]);
+
+  useEffect(() => {
     onProgressRef.current = onProgress;
     onEndedRef.current = onEnded;
     onViewRef.current = onView;
   }, [onProgress, onEnded, onView]);
 
-  // Сброс при смене видео
   useEffect(() => {
     setError(null);
     setLoading(true);
@@ -104,7 +94,28 @@ export default function VideoPlayer({
     setDuration(0);
     viewRecordedRef.current = false;
     maxWatchedRef.current = 0;
+    setCurrentVideoSrc(videoSrc);
   }, [videoSrc]);
+
+  useEffect(() => {
+    if (quality === 'Auto' || !qualitySources[quality]) {
+      setCurrentVideoSrc(videoSrc);
+    } else {
+      const video = videoRef.current;
+      if (!video) return;
+      const currentTime = video.currentTime;
+      const wasPlaying = !video.paused;
+      setCurrentVideoSrc(qualitySources[quality]);
+      setTimeout(() => {
+        if (video) {
+          video.currentTime = currentTime;
+          if (wasPlaying) {
+            video.play().catch(() => {});
+          }
+        }
+      }, 100);
+    }
+  }, [quality, qualitySources, videoSrc]);
 
   const resetHideTimer = useCallback(() => {
     setControlsVisible(true);
@@ -119,68 +130,6 @@ export default function VideoPlayer({
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, [playing, resetHideTimer]);
 
-  // === СУБТИТРЫ ЧЕРЕЗ WEB SPEECH API ===
-  const startSpeechRecognition = () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('Web Speech API не поддерживается в этом браузере');
-      return;
-    }
-    try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = subtitleLang;
-
-      recognition.onresult = (event: any) => {
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const text = result[0].transcript.trim();
-          if (text) {
-            setCurrentSubtitle(text);
-            if (result.isFinal) {
-              lastTranscriptRef.current = { text, time: videoRef.current?.currentTime || 0 };
-            }
-          }
-        }
-      };
-
-      recognition.onerror = (e: any) => {
-        if (e.error !== 'no-speech' && e.error !== 'aborted') {
-          console.warn('Speech recognition error:', e.error);
-        }
-      };
-
-      recognition.onend = () => {
-        if (subtitlesEnabled && recognitionRef.current) {
-          try { recognition.start(); } catch {}
-        }
-      };
-
-      recognition.start();
-      recognitionRef.current = recognition;
-    } catch (err) {
-      console.warn('Не удалось запустить распознавание речи:', err);
-    }
-  };
-
-  const stopSpeechRecognition = () => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-      recognitionRef.current = null;
-    }
-    setCurrentSubtitle('');
-  };
-
-  useEffect(() => {
-    if (subtitlesEnabled) {
-      startSpeechRecognition();
-    } else {
-      stopSpeechRecognition();
-    }
-    return () => stopSpeechRecognition();
-  }, [subtitlesEnabled, subtitleLang]);
-
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -188,14 +137,11 @@ export default function VideoPlayer({
     const onLoadedMetadata = () => {
       setDuration(video.duration || 0);
       setLoading(false);
-      // Если есть сохранённая позиция — перематываем
       if (initialPosition > 0 && initialPosition < (video.duration || 0) - 5) {
         try { video.currentTime = initialPosition; } catch {}
       }
-      // Автозапуск при первой загрузке
       if (autoplayRef.current && !showResumePrompt) {
         autoplayRef.current = false;
-        // Небольшая задержка чтобы избежать блокировки браузером
         setTimeout(() => {
           video.play().catch(() => {});
         }, 100);
@@ -214,7 +160,6 @@ export default function VideoPlayer({
     const onPause = () => setPlaying(false);
     const onEnded = () => {
       setPlaying(false);
-      // Засчитываем просмотр если посмотрел больше 30 сек
       if (!viewRecordedRef.current && maxWatchedRef.current >= 30) {
         viewRecordedRef.current = true;
         onViewRef.current?.(maxWatchedRef.current);
@@ -249,14 +194,12 @@ export default function VideoPlayer({
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('canplay', onCanPlay);
     };
-  }, [initialPosition]);
+  }, [initialPosition, showResumePrompt]);
 
-  // Сохранение прогресса каждые 5 сек
   useEffect(() => {
     if (!playing) return;
     const t = setInterval(() => {
       onProgressRef.current?.(position, duration);
-      // Также засчитываем просмотр если смотрел достаточно
       if (!viewRecordedRef.current && maxWatchedRef.current >= 30) {
         viewRecordedRef.current = true;
         onViewRef.current?.(maxWatchedRef.current);
@@ -277,7 +220,6 @@ export default function VideoPlayer({
     v.muted = muted;
   }, [volume, muted]);
 
-  // Горячие клавиши
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
@@ -322,7 +264,6 @@ export default function VideoPlayer({
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const toggleFullscreen = useCallback(() => {
@@ -330,7 +271,6 @@ export default function VideoPlayer({
     if (!el) return;
     if (!document.fullscreenElement) {
       el.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {
-        // Fallback для браузеров без navigationUI
         el.requestFullscreen?.().catch(() => {});
       });
       setIsFullscreen(true);
@@ -384,7 +324,7 @@ export default function VideoPlayer({
     >
       <video
         ref={videoRef}
-        src={videoSrc}
+        src={currentVideoSrc}
         poster={poster}
         className="block h-full w-full bg-black object-contain"
         playsInline
@@ -505,20 +445,6 @@ export default function VideoPlayer({
           <span className="hidden rounded bg-white/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider sm:inline">{quality}</span>
           <span className="hidden rounded bg-white/15 px-2 py-0.5 text-[10px] font-bold tracking-wider sm:inline">{voiceover}</span>
 
-          <button
-            onClick={() => {
-              if (!subtitlesEnabled && !subtitleLang) setSubtitleLang('ru-RU');
-              const next = !subtitlesEnabled;
-              setSubtitlesEnabled(next);
-              if (next) setSubtitles('Русские');
-              else setSubtitles(null);
-            }}
-            className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${subtitlesEnabled ? 'bg-white/20' : 'hover:bg-white/15'}`}
-            title={subtitlesEnabled ? 'Субтитры вкл' : 'Субтитры выкл'}
-          >
-            <Subtitles className="h-4 w-4" />
-          </button>
-
           <div className="relative">
             <button onClick={() => setShowSettings((s) => !s)} className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${showSettings ? 'bg-white/20' : 'hover:bg-white/15'}`}>
               <Settings className="h-4 w-4" />
@@ -526,9 +452,9 @@ export default function VideoPlayer({
             {showSettings && (
               <div className="absolute bottom-10 right-0 z-40 w-72 max-w-[92vw] overflow-hidden rounded-xl bg-black/95 text-white shadow-2xl ring-1 ring-white/10 animate-scale-in backdrop-blur-md">
                 <div className="flex border-b border-white/10 text-[11px] font-semibold">
-                  {(['speed', 'quality', 'voiceover', 'subtitles'] as const).map((tab) => (
+                  {(['speed', 'quality', 'voiceover'] as const).map((tab) => (
                     <button key={tab} onClick={() => setSettingsTab(tab)} className={`flex-1 px-2 py-2.5 transition-colors ${settingsTab === tab ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5'}`}>
-                      {tab === 'speed' ? 'Скорость' : tab === 'quality' ? 'Качество' : tab === 'voiceover' ? 'Озвучка' : 'Субтитры'}
+                      {tab === 'speed' ? 'Скорость' : tab === 'quality' ? 'Качество' : 'Озвучка'}
                     </button>
                   ))}
                 </div>
@@ -551,16 +477,6 @@ export default function VideoPlayer({
                       {voiceover === v && <Check className="h-4 w-4" />}
                     </button>
                   ))}
-                  {settingsTab === 'subtitles' && (
-                    <>
-                      {['Отключены', 'Русские', 'English'].map((lang) => (
-                        <button key={lang} onClick={() => setSubtitles(lang === 'Отключены' ? null : lang)} className={`flex w-full items-center justify-between rounded px-3 py-2 text-sm transition-colors hover:bg-white/10 ${(subtitles === null && lang === 'Отключены') || subtitles === lang ? 'font-semibold' : ''}`}>
-                          {lang}
-                          {((subtitles === null && lang === 'Отключены') || subtitles === lang) && <Check className="h-4 w-4" />}
-                        </button>
-                      ))}
-                    </>
-                  )}
                 </div>
               </div>
             )}
@@ -571,15 +487,6 @@ export default function VideoPlayer({
           </button>
         </div>
       </div>
-
-      {/* Субтитры в реальном времени (поверх видео, чуть выше контролов) */}
-      {subtitlesEnabled && currentSubtitle && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-24 z-10 flex justify-center px-4 sm:bottom-28">
-          <div className="max-w-3xl rounded-lg bg-black/85 px-4 py-2 text-center text-sm font-semibold text-white shadow-xl backdrop-blur-sm sm:text-lg">
-            <span lang={subtitleLang}>{currentSubtitle}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
