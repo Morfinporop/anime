@@ -1,4 +1,4 @@
-// CorpMult Backend Server
+// AnimeWorld Backend Server
 // Архитектура: anime → seasons → episodes
 // Express + PostgreSQL + JWT + загрузка видео + раздача статики
 
@@ -867,7 +867,7 @@ async function start() {
 
     // Сначала запускаем сервер, чтобы Railway видел что порт открыт
     const server = app.listen(PORT, '0.0.0.0', () => {
-      console.log(`[server] ✓ CorpMult API запущен на порту ${PORT}`);
+      console.log(`[server] ✓ AnimeWorld API запущен на порту ${PORT}`);
       console.log(`[server] Режим: ${NODE_ENV}`);
       console.log(`[server] Создайте первого админа: curl -X POST $API/api/setup-admin -d '{"username":"Morfin","password":"..."}'`);
     });
