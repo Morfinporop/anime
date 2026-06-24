@@ -38,7 +38,7 @@ export default function SearchPage() {
         <div className="rounded-3xl border border-dashed border-zinc-200 py-16 text-center">
           <SearchIcon className="mx-auto mb-3 h-10 w-10 text-zinc-300" />
           <h2 className="text-xl font-bold text-zinc-900">Введите запрос</h2>
-          <p className="mt-1 text-sm text-zinc-500">Нажмите ⌘K для открытия поиска</p>
+          <p className="mt-1 text-sm text-zinc-500">Нажмите для открытия поиска</p>
         </div>
       ) : results.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-zinc-200 py-16 text-center">
